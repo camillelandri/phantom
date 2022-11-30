@@ -6,11 +6,11 @@
 !--------------------------------------------------------------------------!
 module moddump
 !
-! test common envelope - put point source star next to gas sphere
+! test hyperbolic fly by - modification of moddump_binarystar.f90
 !
 ! :References: None
 !
-! :Owner: Mike Lau
+! :Owner: Camille Landri
 !
 ! :Runtime parameters: None
 !
