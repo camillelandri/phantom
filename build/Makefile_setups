@@ -717,6 +717,35 @@ ifeq ($(SETUP), star)
     GRAVITY=yes
 endif
 
+
+ifeq ($(SETUP), rsg)
+#   model giant star with sink core
+    FPPFLAGS=
+    SETUPFILE= setup_star.f90
+    MODFILE= utils_binary.f90 set_binary.f90 moddump_sink.f90
+    ANALYSIS= ${SRCNIMHD} utils_summary.o utils_omp.o ptmass.o energies.o analysis_common_envelope.F90
+    KNOWN_SETUP=yes
+    IND_TIMESTEPS=no
+    MAXP=10000000
+    GRAVITY=yes
+    MHD=no
+    STORE_TEMP=yes
+endif
+
+ifeq ($(SETUP), stellarcollision)
+#   stellar model + moddump for stellar collision
+    FPPFLAGS=
+    SETUPFILE= setup_star.f90
+    MODFILE= utils_binary.f90 set_binary.f90 moddump_stellarcollision.f90
+    ANALYSIS= ${SRCNIMHD} utils_summary.o utils_omp.o ptmass.o energies.o analysis_stellarcollision.F90
+    KNOWN_SETUP=yes
+    IND_TIMESTEPS=no
+    MAXP=10000000
+    GRAVITY=yes
+    MHD=no
+    STORE_TEMP=yes
+endif
+
 ifeq ($(SETUP), dustystar)
 #   import stellar model from 1D stellar evolution code w/dust
     FPPFLAGS= -DDUST_NUCLEATION -DSINK_RADIATION -DSTAR
