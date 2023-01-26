@@ -79,7 +79,7 @@ subroutine set_default_options
  ! Miscellaneous parameters
  nmaxdumps = -1
  twallmax  = 0.0             ! maximum wall time for run, in seconds
- nfulldump = 10              ! frequency of writing full dumps
+ nfulldump = 1              ! frequency of writing full dumps
  hfact     = hfact_default   ! smoothing length in units of average particle spacing
  Bextx     = 0.              ! external magnetic field
  Bexty     = 0.
