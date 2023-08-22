@@ -61,7 +61,7 @@ end subroutine write_options_cooling_gammie
 !+
 !-----------------------------------------------------------------------
 subroutine read_options_cooling_gammie(name,valstring,imatch,igotall,ierr)
- use io, only:fatal
+ use io, only:fatal, warning
  character(len=*), intent(in)  :: name,valstring
  logical,          intent(out) :: imatch,igotall
  integer,          intent(out) :: ierr
@@ -73,7 +73,7 @@ subroutine read_options_cooling_gammie(name,valstring,imatch,igotall,ierr)
  case('beta_cool')
     read(valstring,*,iostat=ierr) beta_cool
     ngot = ngot + 1
-    if (beta_cool < 1.) call fatal('read_options','beta_cool must be >= 1')
+    if (beta_cool < 1.) call warning('read_options','beta_cool must be >= 1')
  case default
     imatch = .false.
  end select

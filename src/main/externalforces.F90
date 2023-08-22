@@ -66,7 +66,8 @@ module externalforces
    iext_staticsine    = 13, &
    iext_gwinspiral    = 14, &
    iext_discgravity   = 15, &
-   iext_corot_binary  = 16
+   iext_corot_binary  = 16, &
+   iext_acc = 17
 
  !
  ! Human-readable labels for these
@@ -143,6 +144,26 @@ subroutine externalforce(iexternalforce,xi,yi,zi,hi,ti,fextxi,fextyi,fextzi,phi,
 !--1/r^2 force from central point mass
 !
     r2 = xi*xi + yi*yi + zi*zi + eps2_soft
+
+    if (r2 > epsilon(r2)) then
+#ifdef FINVSQRT
+       dr  = finvsqrt(r2)
+#else
+       dr = 1./sqrt(r2)
+#endif
+       dr3 = mass1*dr**3
+       fextxi = fextxi - xi*dr3
+       fextyi = fextyi - yi*dr3
+       fextzi = fextzi - zi*dr3
+       phi    = -mass1*dr
+    endif
+
+
+ case(iext_acc)
+!
+!--1/r^2 force from central point mass
+!
+    r2 = xi*xi + yi*yi + zi*zi
 
     if (r2 > epsilon(r2)) then
 #ifdef FINVSQRT

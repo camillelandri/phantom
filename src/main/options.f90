@@ -33,7 +33,7 @@ module options
 
  real, public :: alpha,alphau,beta
  real, public :: alphamax
- real, public :: alphaB, psidecayfac, overcleanfac, hdivbbmax_max
+ real, public :: alphaB, psidecayfac, overcleanfac, hdivbbmax_max, thresvalue
  integer, public :: ishock_heating,ipdv_heating,icooling,iresistive_heating
  integer, public :: ireconav
 

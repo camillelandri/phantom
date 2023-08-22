@@ -45,6 +45,10 @@ module cooling
  !--Minimum temperature (failsafe to prevent u < 0); optional for ALL cooling options
  real,    public :: Tfloor = 0.                     ! [K]; set in .in file.  On if Tfloor > 0.
  real,    public :: ufloor = 0.                     ! [code units]; set in init_cooling
+ integer,    public :: coolingthres = 0             ! type of cooling threshold
+ real,    public :: thresvalue = 0.                 ! Value for cooling threshlod, unit depends on coolingthres
+ real,    public :: accdist = 0.                 ! Value for cooling threshlod, unit depends on coolingthres
+ real,    public :: accvalue = 0.                 ! Value for cooling threshlod, unit depends on coolingthres
  public :: T0_value ! expose to public
 
  private
@@ -190,7 +194,14 @@ subroutine write_options_cooling(iunit)
     end select
  endif
  if (icooling > 0) call write_inopt(Tfloor,'Tfloor','temperature floor (K); on if > 0',iunit)
-
+ if (icooling > 0) call write_inopt(coolingthres,'coolingthres','type of cooling threshold, 0=off, 1=distance to secondary, '// &
+                                    '2=distance to primary, 3=density',iunit)
+ if (coolingthres > 0) call write_inopt(thresvalue,'thresvalue','value for the cooling threshold, in Rsol if case 1,2, in '// &
+                                    '[g/cm^3] for case 3',iunit)
+ if (coolingthres > 0) call write_inopt(accdist,'accdist','threshold for the external acceleration, in R_sol ',iunit)                                    
+ if (coolingthres > 0) call write_inopt(accvalue,'accvalue','factor for the external acceleration, accvalue * acc_grav '// &
+                                    ' - dimensionless',iunit)
+                  
 end subroutine write_options_cooling
 
 !-----------------------------------------------------------------------
@@ -228,6 +239,18 @@ subroutine read_options_cooling(name,valstring,imatch,igotall,ierr)
  case('Tfloor')
     ! not compulsory to read in
     read(valstring,*,iostat=ierr) Tfloor
+ case('coolingthres')
+    ! not compulsory to read in
+    read(valstring,*,iostat=ierr) coolingthres
+case('thresvalue')
+    ! not compulsory to read in
+    read(valstring,*,iostat=ierr) thresvalue
+case('accdist')
+    ! not compulsory to read in
+    read(valstring,*,iostat=ierr) accdist
+case('accvalue')
+    ! not compulsory to read in
+    read(valstring,*,iostat=ierr) accvalue
  case default
     imatch = .false.
     if (h2chemistry) then
