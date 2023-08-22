@@ -347,7 +347,7 @@ subroutine update_max_sizes(n,ntot)
  integer,                   intent(in) :: n
  integer(kind=8), optional, intent(in) :: ntot
 
- maxp = n
+ maxp = 2*n
 
 #ifdef KROME
  maxp_krome = maxp

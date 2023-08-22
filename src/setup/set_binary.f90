@@ -67,6 +67,7 @@ subroutine set_binary(m1,m2,semimajoraxis,eccentricity, &
  real,    intent(out), optional :: omega_corotate
  logical, intent(in),  optional :: verbose
  integer :: i1,i2,i
+ real    :: r,v,thet
  real    :: mtot,dx(3),dv(3),Rochelobe1,Rochelobe2,period
  real    :: x1(3),x2(3),v1(3),v2(3),omega0,cosi,sini,xangle,reducedmass,angmbin
  real    :: a,E,E_dot,P(3),Q(3),omega,big_omega,inc,ecc,tperi,term1,term2,theta
@@ -188,6 +189,31 @@ subroutine set_binary(m1,m2,semimajoraxis,eccentricity, &
     ! set binary at apastron
     dx = (/semimajoraxis*(1. + eccentricity),0.,0./)
     dv = (/0.,sqrt(semimajoraxis*(1.-eccentricity**2)*mtot)/dx(1),0./)
+    
+    ! Determine angle of position from distance between stars
+    !r = 1200.
+    ! periastron
+    !if (r < semimajoraxis*(1.-eccentricity)) then
+    !   r = semimajoraxis*(1.-eccentricity)
+    !   print*, 'The distance asked is smaller than the periastron, setting starting position to periastron:',r,'.'
+    !endif
+    !if (r > semimajoraxis*(1.+eccentricity)) then
+    !   r = semimajoraxis*(1.+eccentricity)
+    !   print*, 'The distance asked is larger than the apastron, setting starting position to apastron:',r,'.'
+    !+endif
+    !thet = acos(semimajoraxis*(1.-eccentricity**2)/(eccentricity*r)-1/eccentricity)
+    
+   ! Define theta for start of trajectory
+   !thet = 145.
+    ! Switch from degrees to rad
+   ! thet = thet * 3.1415926 / 180.
+   ! r = semimajoraxis * (1-eccentricity**2) / (1+ eccentricity*COS(thet))
+    ! Norm of velocity
+   ! v = sqrt(mtot/(semimajoraxis*(1-eccentricity**2)))
+    ! v = sqrt(mtot*(2./r-1./semimajoraxis))
+    ! position and velocity vectors
+   ! dx = (/r*cos(thet),r*sin(thet),0./)
+   ! dv = (/v*sin(thet),-v*(e+cos(thet)),0./)
  endif
 
  ! positions of each star so centre of mass is at zero

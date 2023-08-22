@@ -455,9 +455,12 @@ subroutine check_setup(nerror,nwarn,restart)
 
  if (.not.h2chemistry .and. maxvxyzu >= 4 .and. icooling == 3 .and. iexternalforce/=iext_corotate) then
     if (dot_product(xcom,xcom) >  1.e-2) then
-       print*,'Error in setup: Gammie (2001) cooling (icooling=3) assumes Omega = 1./r^1.5'
-       print*,'                but the centre of mass is not at the origin!'
-       nerror = nerror + 1
+       print*, 'Warning in setup - Gammie cooling : CoM is not at the origin. Make sure '
+       print*, 'that Gammie function takes xi-xcore instead of xcore, and triple check results'
+       nwarn = nwarn + 1
+      !print*,'Error in setup: Gammie (2001) cooling (icooling=3) assumes Omega = 1./r^1.5'
+       !print*,'                but the centre of mass is not at the origin!'
+       !nerror = nerror + 1
     endif
  endif
 
