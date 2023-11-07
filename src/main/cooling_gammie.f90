@@ -28,17 +28,22 @@ contains
 !   Gammie (2001) cooling
 !+
 !-----------------------------------------------------------------------
-subroutine cooling_Gammie_explicit(xi,yi,zi,ui,dudti)
+subroutine cooling_Gammie_explicit(xi,yi,zi,ui,dudti,T_on_u,thresvalue)
 
  real, intent(in)    :: ui,xi,yi,zi
+ real, intent(in)    :: T_on_u,thresvalue
  real, intent(inout) :: dudti
 
- real :: omegai,r2,tcool1
+ real :: omegai,r2,tcool1,ueq,Teq,lambdacool
 
  r2     = xi*xi + yi*yi + zi*zi
  Omegai = r2**(-0.75)
+ Teq = thresvalue * (0.5 * (1 - sqrt(1 - 1500**2/r2)))**(1/3.1)
+ ueq = Teq / T_on_u
  tcool1 = Omegai/beta_cool
- dudti  = dudti - ui*tcool1
+ !lambdacool = 1d-25
+ !tcool = (ui - ueq) / lambdacool
+ dudti  = dudti - (ui-ueq)*tcool1
 
 end subroutine cooling_Gammie_explicit
 

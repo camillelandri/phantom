@@ -155,7 +155,7 @@ subroutine energ_cooling(xi,yi,zi,ui,dudt,rho,dt,Tdust_in,mu_in,gamma_in,K2_in,k
  case (4)
     !call cooling_molecular
  case (3)
-    call cooling_Gammie_explicit(xi,yi,zi,ui,dudt)
+    call cooling_Gammie_explicit(xi,yi,zi,ui,dudt,T_on_u,thresvalue)
  case default
     call energ_cooling_solver(ui,dudt,rho,dt,mu,polyIndex,Tdust,K2,kappa)
  end select
@@ -195,9 +195,9 @@ subroutine write_options_cooling(iunit)
  endif
  if (icooling > 0) call write_inopt(Tfloor,'Tfloor','temperature floor (K); on if > 0',iunit)
  if (icooling > 0) call write_inopt(coolingthres,'coolingthres','type of cooling threshold, 0=off, 1=distance to secondary, '// &
-                                    '2=distance to primary, 3=density',iunit)
+                                    '2=distance to primary, 3=density, 4=distance to primary+shocked',iunit)
  if (coolingthres > 0) call write_inopt(thresvalue,'thresvalue','value for the cooling threshold, in Rsol if case 1,2, in '// &
-                                    '[g/cm^3] for case 3',iunit)
+                                    '[g/cm^3] for case 3, Teff of star in [K] in case 4',iunit)
  if (coolingthres > 0) call write_inopt(accdist,'accdist','threshold for the external acceleration, in R_sol ',iunit)                                    
  if (coolingthres > 0) call write_inopt(accvalue,'accvalue','factor for the external acceleration, accvalue * acc_grav '// &
                                     ' - dimensionless',iunit)
