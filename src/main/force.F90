@@ -2435,13 +2435,14 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
 #endif
  use dim,            only:mhd,mhd_nonideal,lightcurve,use_dust,maxdvdx,use_dustgrowth,gr,use_krome,&
                           store_dust_temperature,do_nucleation
- use eos,            only:gamma,ieos,iopacity_type,gmw
+ use eos,            only:gamma,ieos,iopacity_type
  use options,        only:alpha,ipdv_heating,ishock_heating,psidecayfac,overcleanfac,hdivbbmax_max, &
                           use_dustfrac,damp,icooling
  use part,           only:h2chemistry,rhoanddhdrho,iboundary,igas,maxphase,maxvxyzu,nptmass,xyzmh_ptmass, &
                           massoftype,get_partinfo,tstop,strain_from_dvdx,ithick,iradP,sinks_have_heating, &
                           nucleation,idK2,idmu,idkappa,idgamma,dust_temp
- use cooling,        only:energ_cooling,cooling_in_step,coolingthres,thresvalue,accdist,accvalue,ufloor
+ use cooling,        only:energ_cooling,cooling_in_step,ufloor
+ use cooling_rsg,    only:Tdust,pdust,Tstar,Rstar,Mstar,radacc
  use ptmass_heating, only:energ_sinkheat
 #ifdef IND_TIMESTEPS
  use part,           only:ibin
@@ -2548,7 +2549,7 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
  real                  :: densi, vxi,vyi,vzi,u0i,dudtcool,dudtheat
  real                  :: posi(3),veli(3),gcov(0:3,0:3),metrici(0:3,0:3,2)
  integer               :: ii,ia,ib,ic,ierror
- real                  :: dxcool, dxprim, dxsec, Teq, dxi, dyi, dzi, alphai, vold
+ real                  :: dxprim, dxsec, Teq, dxi, dyi, dzi, alphai
  eni = 0.
  realviscosity = (irealvisc > 0)
 
@@ -2812,105 +2813,36 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
              !--add conductivity and resistive heating
              fxyz4 = fxyz4 + fac*fsum(idendtdissi)
             
-             ! COOLING
+             ! cooling
             if (icooling > 0 .and. dt > 0. .and. .not. cooling_in_step) then
-               docool = .false.
-               ! if cooling threshold, apply the right threshold before cooling particle
-               select case(coolingthres)         
-               case(0)
-                  docool = .true.            
-               case(1)
-                  ! threshold based on shock switch and max distance to sink secondary 
-                  if (nptmass > 1) then !safety check - sink companion should be sink 2
-                  ! Calculate distance of particle to sink companion
-                     dxcool = sqrt((xi - xyzmh_ptmass(1,2))**2 + (yi - xyzmh_ptmass(2,2))**2 + (zi - xyzmh_ptmass(3,2))**2)
-                     alphai = xpartveci(ialphai)
-                     ! Apply cooling if particle is close enough to the sink
-                     if (alphai .ge. 0.5 .and. dxcool .le. thresvalue) then
-                        docool = .true.
-                     endif
-                  else ! stop if safety check does not pass
-                     call fatal('force', 'cooling threshold using distance to secondary requires 2 sinks')
+               if (icooling .eq. 7) then
+                  docool = .false.
+                  ! Get distance from primary and shock parameter
+                  dxprim = sqrt((xi - xyzmh_ptmass(1,1))**2 + (yi - xyzmh_ptmass(2,1))**2 + (zi - xyzmh_ptmass(3,1))**2)
+                  !dxsec = sqrt((xi - xyzmh_ptmass(1,2))**2 + (yi - xyzmh_ptmass(2,2))**2 + (zi - xyzmh_ptmass(3,2))**2)
+                  !alphai = xpartveci(ialphai)
+                  ! Get temperature due to stellar radiation with geometrical dilution factor (7.36 in Lamers, Cassenilli 1999)
+                  !Teq = Tstar * (0.5 * (1 - sqrt(1 - (Rstar/dxprim)**2)))**(1/(4+pdust))
+                  if (dxprim > Rstar) then  !tempi > Teq .and. vxyzu(4,i) > ufloor
+                     ! turn on cooling
+                     docool = .true.
                   endif
-               case(2)
-                  ! threshold based on min distance to sink primary
-                  if (nptmass > 0) then !safety check - sink primary should be sink 1
-                     ! Calculate distance of particle to sink primary
-                     dxcool = sqrt((xi - xyzmh_ptmass(1,1))**2 + (yi - xyzmh_ptmass(2,1))**2 + (zi - xyzmh_ptmass(3,1))**2)
-                     alphai = xpartveci(ialphai)
-                     ! Apply cooling if particle is close enough to the sink
-                     if (alphai .ge. 0.5 .and. dxcool >= thresvalue) then
-                        docool = .true.
-                     endif
-                     ! This threshold is a bit too efficient and gas tends to fall back on the primary
-                     ! We add an acceleration term gamma*a_grav (free wind approx. see eq 4 of 
-                     ! Esseldeurs 2023) to push the material further out if
-                     ! the temperature of the particle is small enough and it is far from the primary
-                     if (tempi .le. 3000 .and. dxcool .ge. accdist) then 
-                        ! acc = 1.1 * r * M1/norm(r)**3, M1 is 20Msol  
-                        fxyzu(1,i) = fxyzu(1,i) + accvalue * 20.0/dxcool**3 * (xi - xyzmh_ptmass(1,1))
-                        fxyzu(2,i) = fxyzu(2,i) + accvalue * 20.0/dxcool**3 * (yi - xyzmh_ptmass(2,1))
-                        fxyzu(3,i) = fxyzu(3,i) + accvalue * 20.0/dxcool**3 * (zi - xyzmh_ptmass(3,1))
-                     endif
-                  else ! stop if safety check does not pass
-                     call fatal('force', 'cooling threshold using distance to primary requires 1 sink')
-                  endif
-               case(3)
-                  ! threshold based on min density criteria
-                  if (thresvalue .ge. 0.0) then !safety check - density threshold should be greater than 0
-                     ! Apply cooling if density around particle is low enough
-                     if (rhoi <= thresvalue) then
-                        docool = .true.
-                     endif
-                  else ! stop if safety check does not pass
-                     call fatal('force', 'density threshold for cooling should be larger than 0.')
+                  if (tempi .le. Tdust .and. dxprim > 1.5*Rstar) then   
+                     ! add acceleration from free wind (rad. pressure exactly counteracts grav. acc.)
+                     fxyzu(1,i) = fxyzu(1,i) + radacc * Mstar/dxprim**3 * (xi - xyzmh_ptmass(1,1))
+                     fxyzu(2,i) = fxyzu(2,i) + radacc * Mstar/dxprim**3 * (yi - xyzmh_ptmass(2,1))
+                     fxyzu(3,i) = fxyzu(3,i) + radacc * Mstar/dxprim**3 * (zi - xyzmh_ptmass(3,1))
                   endif   
-               case(4)
-                  ! Cooling cheat - We don't need to resolve cooling, simply to make sure it happens
-                  ! So we can simply emulate it by changing the temperature, internal energy and pressure
-                  ! to values reached at the end of cooling, corresponding to the equilibrium temperature
-                  ! due to stellar flux. Here threshvalue is Teff of the primary. Also check if the particle
-                  ! has been shocked 
-                  if (thresvalue .ge. 0.0) then !safety check - temperature threshold should be greater than 0
-                     ! Get distance from primary and shock parameter
-                     dxprim = sqrt((xi - xyzmh_ptmass(1,1))**2 + (yi - xyzmh_ptmass(2,1))**2 + (zi - xyzmh_ptmass(3,1))**2)
-                     dxsec = sqrt((xi - xyzmh_ptmass(1,2))**2 + (yi - xyzmh_ptmass(2,2))**2 + (zi - xyzmh_ptmass(3,2))**2)
-                     alphai = xpartveci(ialphai)
-                     ! Get temperature due to stellar radiation with geometrical dilution factor (7.36 in Lamers, Cassenilli 1999)
-                     ! for now p=-0.9, Tc = 1100K for silicate grains (Bladh Hofner 2012)
-                     Teq = thresvalue * (0.5 * (1 - sqrt(1 - (1500/dxprim)**2)))**(1/3.1)  !(1500/dxprim)**0.5 * thresvalue
-                     !ufloor = kboltz * Teq / ((gamma-1.) * gmw * mass_proton_cgs)/unit_ergg
-                     if (tempi > Teq .and. dxprim > 1500. .and. alphai > 0.5) then
-                        ! turn on physical cooling
-                        docool = .true.
-                        ! change thermal energy floor temperature by hand
-                        ! so that it corresponds to equilibrium temperature due to star radition
-                        ! press = rho * kb * T / (m_h * mu)
-                        ! u = press / ((gamma - 1) * rho)
-                        
-                        !fxyz4 = fxyz4 + Rg/((gamma-1.)*gmw)*rhoi*(tempi-thresvalue)/dt /unit_ergg
-                        !pri = (gamma - 1.) * rhoi * vxyzu(4,i)
-                        ! Add acceleration from radiation pressure (free wind approximation)
-                     endif
-                     ! if (tempi .le. accdist) then   
-                     !    fxyzu(1,i) = fxyzu(1,i) + accvalue * 20.0/dxcool**3 * (xi - xyzmh_ptmass(1,1))
-                     !    fxyzu(2,i) = fxyzu(2,i) + accvalue * 20.0/dxcool**3 * (yi - xyzmh_ptmass(2,1))
-                     !    fxyzu(3,i) = fxyzu(3,i) + accvalue * 20.0/dxcool**3 * (zi - xyzmh_ptmass(3,1))
-                     ! endif
-                  else ! stop if safety check does not pass
-                     call fatal('force', 'temperature threshold for cooling should be larger than 0.')
-                  endif               
-               case default
-                  docool = .true.
-               end select
+               else
+                  docool = .true.         
+               endif
 
-               ! Only apply cooling if threshold passed
+               ! Apply cooling
                if (docool .eqv. .true.) then
                   ! Calculate distance to stellar core (because the core is not necessarily at the origin)
                   dxi = xi - xyzmh_ptmass(1,1)
                   dyi = yi - xyzmh_ptmass(2,1)
                   dzi = zi - xyzmh_ptmass(3,1)
-                  ! original cooling loop
                   if (store_dust_temperature) then
                      if (do_nucleation) then
                         call energ_cooling(dxi,dyi,dzi,vxyzu(4,i),dudtcool,rhoi,dt,dust_temp(i),&

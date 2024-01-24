@@ -1082,7 +1082,7 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
  use options,        only:iexternalforce,idamp,icooling
  use part,           only:maxphase,abundance,nabundances,h2chemistry,eos_vars,epot_sinksink,&
                           isdead_or_accreted,iamboundary,igas,iphase,iamtype,massoftype,rhoh,divcurlv, &
-                          fxyz_ptmass_sinksink,dust_temp,tau,nucleation,idK2,idmu,idkappa,idgamma
+                          fxyz_ptmass_sinksink,dust_temp,tau,nucleation,idK2,idmu,idkappa,idgamma,itemp
  use chem,           only:update_abundances,get_dphot
  use cooling_ism,    only:dphot0,energ_cooling_ism,dphotflag,abundsi,abundo,abunde,abundc,nabn
  use io_summary,     only:summary_variable,iosumextr,iosumextt,summary_accrete,summary_accrete_fail
@@ -1092,6 +1092,7 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
  use damping,        only:calc_damp,apply_damp
  use ptmass_radiation,only:get_rad_accel_from_ptmass,isink_radiation
  use cooling,        only:energ_cooling,cooling_in_step
+ use cooling_rsg,    only:Tdust,pdust,Tstar,Rstar,Mstar,radacc
  use dust_formation, only:evolve_dust
 #ifdef KROME
  use part,            only: gamma_chem,mu_chem,dudt_chem,T_gas_cool
@@ -1118,6 +1119,7 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
  real            :: abundi(nabn),gmwvar
  logical         :: accreted,extf_is_velocity_dependent
  logical         :: last_step,done
+ real            :: dxprim, dxsec, dxi, dyi, dzi, tempi
 
 
 !
@@ -1199,8 +1201,8 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
     fonrmax = 0.
     !$omp parallel default(none) &
     !$omp shared(maxp,maxphase) &
-    !$omp shared(npart,xyzh,vxyzu,fext,abundance,iphase,ntypes,massoftype) &
-    !$omp shared(eos_vars,dust_temp,store_dust_temperature) &
+    !$omp shared(npart,xyzh,vxyzu,fxyzu,fext,abundance,iphase,ntypes,massoftype) &
+    !$omp shared(eos_vars,dust_temp,store_dust_temperature,Tdust,pdust,Tstar,Rstar,Mstar,radacc) &
     !$omp shared(dt,hdt,timei,iexternalforce,extf_is_velocity_dependent,cooling_in_step,icooling) &
     !$omp shared(xyzmh_ptmass,vxyz_ptmass,idamp,damp_fac) &
     !$omp shared(nptmass,nsubsteps,C_force,divcurlv,dphotflag,dphot0) &
@@ -1210,7 +1212,7 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
     !$omp shared(gamma_chem,mu_chem,dudt_chem) &
 #endif
     !$omp private(dphot,abundi,gmwvar) &
-    !$omp private(ui,rhoi) &
+    !$omp private(ui,rhoi,tempi,dxprim,dxsec,dxi,dyi,dzi) &
     !$omp private(i,ichem,dudtcool,fxi,fyi,fzi,phii) &
     !$omp private(fextx,fexty,fextz,fextxi,fextyi,fextzi,poti,deni,fextv,accreted) &
     !$omp private(fonrmaxi,dtphi2i,dtf) &
@@ -1337,6 +1339,25 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
                    else
                       call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),dudtcool,rhoi,dt,dust_temp(i))
                    endif
+                elseif (icooling .eq. 7) then
+                  dxi = xyzh(1,i) - xyzmh_ptmass(1,1)
+                  dyi = xyzh(2,i) - xyzmh_ptmass(2,1)
+                  dzi = xyzh(3,i) - xyzmh_ptmass(3,1)
+                  dxprim = sqrt((dxi)**2 + (dyi)**2 + (dzi)**2)
+                  dxsec = sqrt((xyzh(1,i) - xyzmh_ptmass(1,2))**2 + (xyzh(2,i) - xyzmh_ptmass(2,2))**2 &
+                               + (xyzh(3,i) - xyzmh_ptmass(3,2))**2)
+                  !Teq = Tstar * (0.5 * (1 - sqrt(1 - (Rstar/dxprim)**2)))**(1/(4+pdust))
+                  if (dxprim > Rstar) then  !tempi > Teq .and. vxyzu(4,i) > ufloor .and. dxprim < 1.5 * Rstar
+                     ! turn on cooling
+                     call energ_cooling(dxi,dyi,dzi,vxyzu(4,i),dudtcool,rhoi,dt)
+                  endif
+                  tempi = eos_vars(itemp,i)
+                  if (tempi .le. Tdust .and. dxprim > Rstar .and. dxsec > 100) then   
+                     ! add acceleration from free wind (rad. pressure exactly counteracts grav. acc.)
+                     fxyzu(1,i) = fxyzu(1,i) + radacc * Mstar/dxprim**3 * (dxi)
+                     fxyzu(2,i) = fxyzu(2,i) + radacc * Mstar/dxprim**3 * (dyi)
+                     fxyzu(3,i) = fxyzu(3,i) + radacc * Mstar/dxprim**3 * (dzi)
+                  endif   
                 else
                    ! cooling without stored dust temperature
                    call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),dudtcool,rhoi,dt)

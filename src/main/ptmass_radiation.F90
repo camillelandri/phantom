@@ -30,7 +30,7 @@ module ptmass_radiation
  integer, public  :: iget_tdust      = 0
  integer, public  :: iray_resolution = -1
  real,    public  :: tdust_exp       = 0.5
- real,    public  :: alpha_rad       = 0.
+ real,    public  :: alpha_rad       = 1.0
 
  public :: get_rad_accel_from_ptmass
  public :: read_options_ptmass_radiation,write_options_ptmass_radiation
@@ -72,7 +72,7 @@ subroutine get_rad_accel_from_ptmass(nptmass,npart,xyzh,xyzmh_ptmass,fext,tau)
  do j=1,nptmass
     if (xyzmh_ptmass(4,j) < 0.) cycle
     Mstar_cgs  = xyzmh_ptmass(4,j)*umass
-    Lstar_cgs  = xyzmh_ptmass(ilum,j)*unit_luminosity
+    Lstar_cgs  = (2-j)*unit_luminosity!xyzmh_ptmass(ilum,j)*unit_luminosity  Trick to bypass other setups, I just need free wind, no Lstar required
     !compute radiative acceleration if sink particle is assigned a non-zero luminosity
     if (Lstar_cgs > 0.d0) then
        xa = xyzmh_ptmass(1,j)
@@ -90,45 +90,52 @@ end subroutine get_rad_accel_from_ptmass
 !+
 !-----------------------------------------------------------------------
 subroutine calc_rad_accel_from_ptmass(npart,xa,ya,za,Lstar_cgs,Mstar_cgs,xyzh,fext,tau)
- use part,  only:isdead_or_accreted,dust_temp,nucleation,idkappa,idalpha
+ use io,     only:fatal,warning
+ use part,  only:isdead_or_accreted,dust_temp,nucleation,idkappa,idalpha,eos_vars,itemp
  use dim,   only:do_nucleation, itau_alloc
  use dust_formation, only:calc_kappa_bowen
+ use cooling_rsg,    only:Tdust, Rstar
  integer,  intent(in)    :: npart
  real,     intent(in)    :: xyzh(:,:)
  real,     intent(in), optional  :: tau(:)
  real,     intent(in)    :: xa,ya,za,Lstar_cgs,Mstar_cgs
  real,     intent(inout) :: fext(:,:)
- real                    :: dx,dy,dz,r,ax,ay,az,alpha,kappa
+ real                    :: dx,dy,dz,r,ax,ay,az,alpha,kappa,tempi
  integer                 :: i
 
  !$omp parallel  do default(none) &
- !$omp shared(nucleation,do_nucleation,itau_alloc)&
- !$omp shared(dust_temp) &
+ !$omp shared(nucleation,do_nucleation,itau_alloc,Tdust,Rstar)&
+ !$omp shared(eos_vars,dust_temp) &
  !$omp shared(npart,xa,ya,za,Mstar_cgs,Lstar_cgs,xyzh,fext,tau) &
- !$omp private(i,dx,dy,dz,ax,ay,az,r,alpha,kappa)
+ !$omp private(i,dx,dy,dz,ax,ay,az,r,alpha,kappa,tempi)
  do i=1,npart
     if (.not.isdead_or_accreted(xyzh(4,i))) then
        dx = xyzh(1,i) - xa
        dy = xyzh(2,i) - ya
        dz = xyzh(3,i) - za
        r = sqrt(dx**2 + dy**2 + dz**2)
-       if (do_nucleation) then
-          if (itau_alloc == 1) then
-             call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
-               nucleation(idkappa,i),ax,ay,az,nucleation(idalpha,i),tau(i))
-          else
-             call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
-               nucleation(idkappa,i),ax,ay,az,nucleation(idalpha,i))
-          endif
-       else
-          kappa = calc_kappa_bowen(dust_temp(i))
-          if (itau_alloc == 1) then
-             call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
-               kappa,ax,ay,az,alpha,tau(i))
-          else
-             call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
-               kappa,ax,ay,az,alpha)
-          endif
+       tempi  = eos_vars(itemp,i)
+       if (r > 1.5*Rstar .and. tempi < Tdust) then
+         !call warning('step_rad','wind active at tempi',var='tempi',val=tempi)
+         !call warning('step_rad','wind active at r',var='r',val=r) 
+         if (do_nucleation) then
+            if (itau_alloc == 1) then
+               call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
+                  nucleation(idkappa,i),ax,ay,az,nucleation(idalpha,i),tau(i))
+            else
+               call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
+                  nucleation(idkappa,i),ax,ay,az,nucleation(idalpha,i))
+            endif
+         else
+            kappa = calc_kappa_bowen(dust_temp(i))
+            if (itau_alloc == 1) then
+               call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
+                  kappa,ax,ay,az,alpha,tau(i))
+            else
+               call get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
+                  kappa,ax,ay,az,alpha)
+            endif
+         endif
        endif
        fext(1,i) = fext(1,i) + ax
        fext(2,i) = fext(2,i) + ay
@@ -148,6 +155,7 @@ end subroutine calc_rad_accel_from_ptmass
 subroutine get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
      kappa,ax,ay,az,alpha,tau_in)
  use units,          only:umass
+ use io,             only:warning,fatal
  use dust_formation, only:calc_Eddington_factor
  real, intent(in)            :: r,dx,dy,dz,Mstar_cgs,Lstar_cgs,kappa
  real, intent(in), optional  :: tau_in
@@ -173,6 +181,9 @@ subroutine get_radiative_acceleration_from_star(r,dx,dy,dz,Mstar_cgs,Lstar_cgs,&
     ! no radiation pressure
     alpha = 0.
  end select
+ if (alpha .eq. 0.) then
+   call fatal('step_rad','wind active but alpha is 0',var='alpha',val=alpha)
+ endif
  fac = alpha*Mstar_cgs/(umass*r**3)
  ax = fac*dx
  ay = fac*dy

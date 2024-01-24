@@ -39,7 +39,7 @@ module externalforces
  public :: update_externalforce
  public :: write_headeropts_extern,read_headeropts_extern
 
- real, public :: mass1 = 1.0
+ real, public :: mass1 = 20.0
  real, public :: eps_soft = 0.d0
  real, private :: eps2_soft = 0.d0
  real, public :: Rdisc = 5.
@@ -67,12 +67,13 @@ module externalforces
    iext_gwinspiral    = 14, &
    iext_discgravity   = 15, &
    iext_corot_binary  = 16, &
-   iext_acc = 17
+   iext_acc           = 17, &
+   iext_fwind         = 18
 
  !
  ! Human-readable labels for these
  !
- integer, parameter, public  :: iexternalforce_max = 16
+ integer, parameter, public  :: iexternalforce_max = 18
  character(len=*), parameter, public :: externalforcetype(iexternalforce_max) = (/ &
     'star                 ', &
     'corotate             ', &
@@ -89,7 +90,9 @@ module externalforces
     'static sinusoid      ', &
     'grav. wave inspiral  ', &
     'disc gravity         ', &
-    'corotating binary    '/)
+    'corotating binary    ', &
+    'acc from pt mass     ', &
+    'free wind            '/)
 
 contains
 !-----------------------------------------------------------------------
@@ -176,6 +179,25 @@ subroutine externalforce(iexternalforce,xi,yi,zi,hi,ti,fextxi,fextyi,fextzi,phi,
        fextyi = fextyi - yi*dr3
        fextzi = fextzi - zi*dr3
        phi    = -mass1*dr
+    endif
+
+   case(iext_fwind)
+      !
+      ! free wind (prop to +1/r^2) force from central point mass
+      !
+    r2 = xi*xi + yi*yi + zi*zi
+      
+    if (r2 > epsilon(r2)) then
+#ifdef FINVSQRT
+       dr  = finvsqrt(r2)
+#else
+       dr = 1./sqrt(r2)
+#endif
+       dr3 = mass1*dr**3
+       fextxi = fextxi + xi*dr3
+       fextyi = fextyi + yi*dr3
+       fextzi = fextzi + zi*dr3
+       phi    = mass1*dr
     endif
 
  case(iext_corotate)
