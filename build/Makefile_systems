@@ -2,6 +2,13 @@
 # Sensible compiler options for different compute systems
 #----------------------------------------------------------------
 
+
+ifeq ($(SYSTEM), r3d3)
+    include Makefile_defaults_gfortran
+    FFLAGS+= -fPIC -O3 -mfpmath=sse -ffast-math -march=native
+    MPI=intel
+endif
+
 ifeq ($(SYSTEM),cray)
     FC=ftn
     FFLAGS=-Oaggress -Ovector3 -Oipa4
