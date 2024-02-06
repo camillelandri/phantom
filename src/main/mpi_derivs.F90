@@ -1,8 +1,8 @@
 !--------------------------------------------------------------------------!
 ! The Phantom Smoothed Particle Hydrodynamics code, by Daniel Price et al. !
-! Copyright (c) 2007-2023 The Authors (see AUTHORS)                        !
+! Copyright (c) 2007-2024 The Authors (see AUTHORS)                        !
 ! See LICENCE file for usage and distribution conditions                   !
-! http://phantomsph.bitbucket.io/                                          !
+! http://phantomsph.github.io/                                             !
 !--------------------------------------------------------------------------!
 module mpiderivs
 !
@@ -59,6 +59,7 @@ module mpiderivs
  public :: recv_while_wait
  public :: reset_cell_counters
  public :: check_complete
+ public :: combine_cells ! only to prevent compiler warning
 
  !
  !--the counters are module variables, but must be passed through as arguments

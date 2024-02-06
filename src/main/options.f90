@@ -1,8 +1,8 @@
 !--------------------------------------------------------------------------!
 ! The Phantom Smoothed Particle Hydrodynamics code, by Daniel Price et al. !
-! Copyright (c) 2007-2023 The Authors (see AUTHORS)                        !
+! Copyright (c) 2007-2024 The Authors (see AUTHORS)                        !
 ! See LICENCE file for usage and distribution conditions                   !
-! http://phantomsph.bitbucket.io/                                          !
+! http://phantomsph.github.io/                                             !
 !--------------------------------------------------------------------------!
 module options
 !
@@ -127,7 +127,7 @@ subroutine set_default_options
  ! artificial thermal conductivity
  alphau = 1.
  if (gr) alphau = 0.1
- ireconav = 1
+ ireconav = -1
 
  ! artificial resistivity (MHD only)
  alphaB            = 1.0
@@ -150,7 +150,7 @@ subroutine set_default_options
  mcfost_computes_Lacc = .false.
  mcfost_dust_subl = .false.
  mcfost_uses_PdV = .true.
- mcfost_keep_part = 0.999
+ mcfost_keep_part = real(0.999,kind=4)
  ISM = 0
 
  ! radiation
