@@ -1348,7 +1348,7 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
                    else
                       call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),dudtcool,rhoi,dt,dust_temp(i))
                    endif
-                elseif (icooling .eq. 7) then
+                elseif (icooling .eq. 8) then
                   dxi = xyzh(1,i) - xyzmh_ptmass(1,1)
                   dyi = xyzh(2,i) - xyzmh_ptmass(2,1)
                   dzi = xyzh(3,i) - xyzmh_ptmass(3,1)
