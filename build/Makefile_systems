@@ -2,19 +2,16 @@
 # Sensible compiler options for different compute systems
 #----------------------------------------------------------------
 
-<<<<<<< HEAD
 
-ifeq ($(SYSTEM), r3d3)
+ifeq ($(SYSTEM), barbora)
     include Makefile_defaults_gfortran
     FFLAGS+= -fPIC -O3 -mfpmath=sse -ffast-math -march=native
-    MPI=intel
+    MPI=yes
 endif
 
-ifeq ($(SYSTEM),cray)
-=======
+
 ifeq ($(SYSTEM), cray)
 #   default settings for the Cray Fortran Compiler (ftn)
->>>>>>> master
     FC=ftn
     FFLAGS=-Oaggress -Ovector3 -Oipa4
     DBLFLAG= -s real64

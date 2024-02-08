@@ -37,7 +37,6 @@ module externalforces
  public :: update_externalforce
  public :: write_headeropts_extern,read_headeropts_extern
 
- real, public :: mass1 = 20.0
  real, public :: eps_soft = 0.d0
  real, private :: eps2_soft = 0.d0
  real, public :: Rdisc = 5.

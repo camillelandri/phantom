@@ -2492,11 +2492,11 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
  use eos,            only:ieos,iopacity_type
  use options,        only:alpha,ipdv_heating,ishock_heating,psidecayfac,overcleanfac,hdivbbmax_max, &
                           use_dustfrac,damp,icooling,implicit_radiation
- use part,           only:h2chemistry,rhoanddhdrho,iboundary,igas,maxphase,maxvxyzu,nptmass,xyzmh_ptmass, eos_vars &
-                          massoftype,get_partinfo,tstop,strain_from_dvdx,ithick,iradP,sinks_have_heating,luminosity, &
-                          nucleation,idK2,idmu,imu,idkappa,idgamma,dust_temp,pxyzu,ndustsmall,igamma
- use cooling,        only:energ_cooling,cooling_in_step,ufloor
- use cooling_rsg,    only:Tdust,pdust,Tstar,Rstar,Mstar,radacc
+ use part,           only:rhoanddhdrho,iboundary,igas,maxphase,maxvxyzu,nptmass,xyzmh_ptmass,eos_vars, &
+                          massoftype,get_partinfo,tstop,strain_from_dvdx,ithick,iradP,sinks_have_heating,&
+                          luminosity,nucleation,idK2,idkappa,dust_temp,pxyzu,ndustsmall,imu,&
+                          igamma
+ use cooling,        only:energ_cooling,cooling_in_step
  use ptmass_heating, only:energ_sinkheat
  use dust,           only:drag_implicit
 #ifdef IND_TIMESTEPS
@@ -2513,13 +2513,6 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
  use timestep_sts,   only:use_sts
  use units,          only:unit_ergg,unit_density,get_c_code
  use eos_shen,       only:eos_shen_get_dTdu
- use physcon,        only:kb_on_mh,Rg
-#ifdef LIGHTCURVE
- use part,           only:luminosity
-#endif
-#ifdef KROME
- use part,           only:gamma_chem
-#endif
  use metric_tools,   only:unpack_metric
  use utils_gr,       only:get_u0
  use io,             only:error
@@ -2582,7 +2575,7 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
  real    :: vsigdtc,dtc,dtf,dti,dtcool,dtdiffi,ts_min,dtent
  real    :: dtohmi,dtambii,dthalli,dtvisci,dtdrag,dtdusti,dtclean
  integer :: iamtypei
- logical :: iactivei,iamgasi,iamdusti,realviscosity,docool
+ logical :: iactivei,iamgasi,iamdusti,realviscosity
 #ifdef IND_TIMESTEPS
  integer(kind=1)       :: ibin_neighi
  logical               :: allow_decrease,dtcheck
@@ -2594,7 +2587,7 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
  real                  :: densi, vxi,vyi,vzi,u0i,dudtcool,dudtheat
  real                  :: posi(3),veli(3),gcov(0:3,0:3),metrici(0:3,0:3,2)
  integer               :: ii,ia,ib,ic,ierror
- real                  :: dxprim, dxsec, Teq, dxi, dyi, dzi, alphai
+
  eni = 0.
  realviscosity = (irealvisc > 0)
 
@@ -2867,79 +2860,31 @@ subroutine finish_cell_and_store_results(icall,cell,fxyzu,xyzh,vxyzu,poten,dt,dv
              endif
              !--add conductivity and resistive heating
              fxyz4 = fxyz4 + fac*fsum(idendtdissi)
-            
-             ! cooling
-            if (icooling > 0 .and. dt > 0. .and. .not. cooling_in_step) then
-               if (icooling .eq. 8) then
-                  docool = .false.
-                  ! Get distance from primary and shock parameter
-                  dxprim = sqrt((xi - xyzmh_ptmass(1,1))**2 + (yi - xyzmh_ptmass(2,1))**2 + (zi - xyzmh_ptmass(3,1))**2)
-                  !dxsec = sqrt((xi - xyzmh_ptmass(1,2))**2 + (yi - xyzmh_ptmass(2,2))**2 + (zi - xyzmh_ptmass(3,2))**2)
-                  !alphai = xpartveci(ialphai)
-                  ! Get temperature due to stellar radiation with geometrical dilution factor (7.36 in Lamers, Cassenilli 1999)
-                  !Teq = Tstar * (0.5 * (1 - sqrt(1 - (Rstar/dxprim)**2)))**(1/(4+pdust))
-                  if (dxprim > Rstar) then  !tempi > Teq .and. vxyzu(4,i) > ufloor
-                     ! turn on cooling
-                     docool = .true.
-                  endif
-                  if (tempi .le. Tdust .and. dxprim > 1.5*Rstar) then   
-                     ! add acceleration from free wind (rad. pressure exactly counteracts grav. acc.)
-                     fxyzu(1,i) = fxyzu(1,i) + radacc * Mstar/dxprim**3 * (xi - xyzmh_ptmass(1,1))
-                     fxyzu(2,i) = fxyzu(2,i) + radacc * Mstar/dxprim**3 * (yi - xyzmh_ptmass(2,1))
-                     fxyzu(3,i) = fxyzu(3,i) + radacc * Mstar/dxprim**3 * (zi - xyzmh_ptmass(3,1))
-                  endif   
-               else
-                  docool = .true.         
-               endif
-
-               ! Apply cooling
-               if (docool .eqv. .true.) then
-                  ! Calculate distance to stellar core (because the core is not necessarily at the origin)
-                  dxi = xi - xyzmh_ptmass(1,1)
-                  dyi = yi - xyzmh_ptmass(2,1)
-                  dzi = zi - xyzmh_ptmass(3,1)
-                  if (store_dust_temperature) then
-                     if (do_nucleation) then
-                        call energ_cooling(dxi,dyi,dzi,vxyzu(4,i),dudtcool,rhoi,dt,dust_temp(i),&
-                              nucleation(idmu,i),nucleation(idgamma,i),nucleation(idK2,i),nucleation(idkappa,i))
-                     else
-                        call energ_cooling(dxi,dyi,dzi,vxyzu(4,i),dudtcool,rhoi,dt,dust_temp(i))
-                     endif
-                  else
-                     ! cooling without stored dust temperature
-                     call energ_cooling(dxi,dyi,dzi,vxyzu(4,i),dudtcool,rhoi,dt)
-                  endif
-                  fxyz4 = fxyz4 + fac*dudtcool
-               endif
-            endif
-
-            !if (icooling > 0 .and. dt > 0. .and. .not. cooling_in_step) then
-            !   if (h2chemistry) then
-                  !
-                  ! Call cooling routine, requiring total density, some distance measure and
-                  ! abundances in the 'abund' format
-                  !
-            !      call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
-            !           dust_temp(i),eos_vars(imu,i), eos_vars(igamma,i))
-            !   elseif (store_dust_temperature) then
-                  ! cooling with stored dust temperature
-            !      if (do_nucleation) then
-            !         call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
-            !              dust_temp(i),eos_vars(imu,i),eos_vars(igamma,i),nucleation(idK2,i),nucleation(idkappa,i))
-            !      elseif (update_muGamma) then
-            !         call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
-            !              dust_temp(i),eos_vars(imu,i),eos_vars(igamma,i))
-            !      else
-            !         call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,dust_temp(i))
-            !      endif
-            !   else
-                  ! cooling without stored dust temperature
-            !      call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool)
-            !   endif
-            !   fxyz4 = fxyz4 + fac*dudtcool
-            !endif
-
-
+             if (icooling > 0 .and. dt > 0. .and. .not. cooling_in_step) then
+                if (h2chemistry) then
+                   !
+                   ! Call cooling routine, requiring total density, some distance measure and
+                   ! abundances in the 'abund' format
+                   !
+                   call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
+                        dust_temp(i),eos_vars(imu,i), eos_vars(igamma,i))
+                elseif (store_dust_temperature) then
+                   ! cooling with stored dust temperature
+                   if (do_nucleation) then
+                      call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
+                           dust_temp(i),eos_vars(imu,i),eos_vars(igamma,i),nucleation(idK2,i),nucleation(idkappa,i))
+                   elseif (update_muGamma) then
+                      call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
+                           dust_temp(i),eos_vars(imu,i),eos_vars(igamma,i))
+                   else
+                      call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,dust_temp(i))
+                   endif
+                else
+                   ! cooling without stored dust temperature
+                   call energ_cooling(xi,yi,zi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool)
+                endif
+                fxyz4 = fxyz4 + fac*dudtcool
+             endif
              !  if (nuclear_burning) then
              !     call energ_nuclear(xi,yi,zi,vxyzu(4,i),dudtnuc,rhoi,0.,Tgas=tempi)
              !     fxyz4 = fxyz4 + fac*dudtnuc

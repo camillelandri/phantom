@@ -75,32 +75,27 @@ subroutine init_cooling(id,master,iprint,ierr)
  ierr = 0
  select case(icooling)
  case(4,8)
-    if (id==master) write(iprint,*) 'initialising ISM cooling functions...'
-    abund_default(iHI) = 1.
-    call init_cooling_ism()
- else
-    select case(icooling)
-    case(6)
-       call init_cooling_KI02(ierr)
-    case(5)
-       call init_cooling_KI02(ierr)
-       cooling_in_step = .false.
-    case(4)
-       ! Initialise molecular cooling
-       call init_cooling_molec
-    case(3)
-       ! Gammie
-       cooling_in_step = .false.
-    case(8)
-       ! RSG
-       cooling_in_step = .true.
-    case(7)
-       ! Gammie PL
-       cooling_in_step = .false.
-    case default
-       call init_cooling_solver(ierr)
-    end select
- endif
+   if (id==master) write(iprint,*) 'initialising ISM cooling functions...'
+   abund_default(iHI) = 1.
+   call init_cooling_ism()
+   if (icooling==8) cooling_in_step = .false.
+case(6)
+   call init_cooling_KI02(ierr)
+case(5)
+   call init_cooling_KI02(ierr)
+   cooling_in_step = .false.
+case(3)
+   ! Gammie
+   cooling_in_step = .false.
+case(7)
+   ! Gammie PL
+   cooling_in_step = .false.
+case(9)
+   ! RSG
+   cooling_in_step = .true.
+case default
+   call init_cooling_solver(ierr)
+end select
 
  !--calculate the energy floor in code units
  if (Tfloor > 0.) then
@@ -124,6 +119,8 @@ end subroutine init_cooling
 subroutine energ_cooling(xi,yi,zi,ui,rho,dt,divv,dudt,Tdust_in,mu_in,gamma_in,K2_in,kappa_in,abund_in)
  use io,      only:fatal
  use dim,     only:nabundances
+ use physcon, only:Rg
+ use units,   only:unit_ergg
  use eos,     only:gmw,gamma,ieos,get_temperature_from_u
  use chem,    only:get_extra_abundances
  use cooling_ism,            only:nabn,energ_cooling_ism,abund_default,abundc,abunde,abundo,abundsi
@@ -139,12 +136,13 @@ subroutine energ_cooling(xi,yi,zi,ui,rho,dt,divv,dudt,Tdust_in,mu_in,gamma_in,K2
  real, intent(in), optional :: Tdust_in,mu_in,gamma_in,K2_in,kappa_in   ! in cgs
  real, intent(in), optional :: abund_in(nabn)
  real, intent(out)          :: dudt                                ! in code units
- real                       :: mui,gammai,Tgas,Tdust,K2,kappa
+ real                       :: mui,gammai,Tgas,Tdust,K2,kappa, T_on_u
  real :: abundi(nabn)
 
  dudt   = 0.
  mui    = gmw
  gammai = gamma
+ T_on_u = (gamma-1.)*mui*unit_ergg/Rg
  kappa  = 0.
  K2     = 0.
  if (present(gamma_in)) gammai = gamma_in
@@ -172,8 +170,9 @@ subroutine energ_cooling(xi,yi,zi,ui,rho,dt,divv,dudt,Tdust_in,mu_in,gamma_in,K2
     call energ_cooling_ism(ui,rho,divv,mui,abundi,dudt)
  case (3)
     call cooling_Gammie_explicit(xi,yi,zi,ui,dudt)
- case (7)
-      call cooling_rsg_explicit(xi,yi,zi,ui,dudt,dt,T_on_u)
+ case (9)
+    call cooling_rsg_explicit(xi,yi,zi,ui,dudt,dt,T_on_u)
+ case (7)   
     call cooling_Gammie_PL_explicit(xi,yi,zi,ui,dudt)
  case default
     call energ_cooling_solver(ui,dudt,rho,dt,mui,gammai,Tdust,K2,kappa)
@@ -199,26 +198,22 @@ subroutine write_options_cooling(iunit)
 
  write(iunit,"(/,a)") '# options controlling cooling'
  call write_inopt(C_cool,'C_cool','factor controlling cooling timestep',iunit)
- if (h2chemistry) then
-    call write_inopt(icooling,'icooling','cooling function (0=off, 1=on)',iunit)
-    if (icooling > 0) call write_options_cooling_ism(iunit)
- else
-    call write_inopt(icooling,'icooling','cooling function (0=off, 1=cooling library (step), 2=cooling library (force),'// &
-                     '3=Gammie, 5,6=KI02, 8=RSG cooling)',iunit)
-                     '3=Gammie, 5,6=KI02, 7=powerlaw)',iunit)
-    select case(icooling)
-    case(0,4,5,6)
-       ! do nothing
-    case(3)
-       call write_options_cooling_gammie(iunit)
-    case(8)
-       call write_options_cooling_rsg(iunit)
-    case(7)
-       call write_options_cooling_gammie_PL(iunit)
-    case default
-       call write_options_cooling_solver(iunit)
-    end select
- endif
+ call write_inopt(icooling,'icooling','cooling function (0=off, 1=library (step), 2=library (force),'// &
+                     '3=Gammie, 4=ISM, 5,6=KI02, 7=powerlaw)',iunit)
+ select case(icooling)
+ case(0,5,6)
+    ! do nothing
+ case(4,8)
+    call write_options_cooling_ism(iunit)
+ case(3)
+    call write_options_cooling_gammie(iunit)
+ case(7)
+    call write_options_cooling_gammie_PL(iunit)
+ case(9)
+      call write_options_cooling_rsg(iunit)
+ case default
+    call write_options_cooling_solver(iunit)
+ end select
  if (icooling > 0) call write_inopt(Tfloor,'Tfloor','temperature floor (K); on if > 0',iunit)
 
 end subroutine write_options_cooling
@@ -259,27 +254,22 @@ subroutine read_options_cooling(name,valstring,imatch,igotall,ierr)
  case('Tfloor')
     ! not compulsory to read in
     read(valstring,*,iostat=ierr) Tfloor
-case default
+ case default
     imatch = .false.
     select case(icooling)
     case(0,5,6)
        ! do nothing
     case(4,8)
        call read_options_cooling_ism(name,valstring,imatch,igotallism,ierr)
-    else
-       select case(icooling)
-       case(0,4,5,6)
-          ! do nothing
-       case(3)
-          call read_options_cooling_gammie(name,valstring,imatch,igotallgammie,ierr)
-       case(8)
-          call read_options_cooling_rsg(name,valstring,imatch,igotallgammie,ierr)
-       case(7)
-          call read_options_cooling_gammie_PL(name,valstring,imatch,igotallgammiePL,ierr)
-       case default
-          call read_options_cooling_solver(name,valstring,imatch,igotallfunc,ierr)
-       end select
-    endif
+    case(3)
+       call read_options_cooling_gammie(name,valstring,imatch,igotallgammie,ierr)
+    case(7)
+       call read_options_cooling_gammie_PL(name,valstring,imatch,igotallgammiePL,ierr)
+    case(9)
+       call read_options_cooling_rsg(name,valstring,imatch,igotallgammie,ierr)
+    case default
+       call read_options_cooling_solver(name,valstring,imatch,igotallfunc,ierr)
+    end select
  end select
  ierr = 0
  if (icooling >= 0 .and. ngot >= 2 .and. igotallgammie .and. igotallfunc .and. igotallism) then

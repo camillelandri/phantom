@@ -1321,25 +1321,7 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
              ! COOLING
              !
              if (icooling > 0 .and. cooling_in_step) then
-                if (h2chemistry) then
-                   !
-                   ! Call cooling routine, requiring total density, some distance measure and
-                   ! abundances in the 'abund' format
-                   !
-                   call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
-                        dust_temp(i),eos_vars(imu,i), eos_vars(igamma,i),abund_in=abundi)
-                elseif (store_dust_temperature) then
-                   ! cooling with stored dust temperature
-                   if (do_nucleation) then
-                      call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
-                           dust_temp(i),nucleation(idmu,i),nucleation(idgamma,i),nucleation(idK2,i),nucleation(idkappa,i))
-                   elseif (update_muGamma) then
-                      call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
-                           dust_temp(i),eos_vars(imu,i), eos_vars(igamma,i))
-                   else
-                      call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,dust_temp(i))
-                   endif
-                elseif (icooling .eq. 8) then
+               if (icooling .eq. 9) then
                   dxi = xyzh(1,i) - xyzmh_ptmass(1,1)
                   dyi = xyzh(2,i) - xyzmh_ptmass(2,1)
                   dzi = xyzh(3,i) - xyzmh_ptmass(3,1)
@@ -1349,7 +1331,7 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
                   !Teq = Tstar * (0.5 * (1 - sqrt(1 - (Rstar/dxprim)**2)))**(1/(4+pdust))
                   if (dxprim > Rstar) then  !tempi > Teq .and. vxyzu(4,i) > ufloor .and. dxprim < 1.5 * Rstar
                      ! turn on cooling
-                     call energ_cooling(dxi,dyi,dzi,vxyzu(4,i),dudtcool,rhoi,dt)
+                     call energ_cooling(dxi,dyi,dzi,vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool)
                   endif
                   tempi = eos_vars(itemp,i)
                   if (tempi .le. Tdust .and. dxprim > Rstar .and. dxsec > 100) then   
@@ -1357,7 +1339,25 @@ subroutine step_extern(npart,ntypes,dtsph,dtextforce,xyzh,vxyzu,fext,fxyzu,time,
                      fxyzu(1,i) = fxyzu(1,i) + radacc * Mstar/dxprim**3 * (dxi)
                      fxyzu(2,i) = fxyzu(2,i) + radacc * Mstar/dxprim**3 * (dyi)
                      fxyzu(3,i) = fxyzu(3,i) + radacc * Mstar/dxprim**3 * (dzi)
-                  endif   
+                  endif
+                elseif (h2chemistry) then
+                   !
+                   ! Call cooling routine, requiring total density, some distance measure and
+                   ! abundances in the 'abund' format
+                   !
+                   call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
+                        dust_temp(i),eos_vars(imu,i), eos_vars(igamma,i),abund_in=abundi)
+                elseif (store_dust_temperature) then
+                   ! cooling with stored dust temperature
+                  if (do_nucleation) then
+                      call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
+                           dust_temp(i),nucleation(idmu,i),nucleation(idgamma,i),nucleation(idK2,i),nucleation(idkappa,i))
+                   elseif (update_muGamma) then
+                      call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,&
+                           dust_temp(i),eos_vars(imu,i), eos_vars(igamma,i))
+                   else
+                      call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool,dust_temp(i))
+                  endif  
                 else
                    ! cooling without stored dust temperature
                    call energ_cooling(xyzh(1,i),xyzh(2,i),xyzh(3,i),vxyzu(4,i),rhoi,dt,divcurlv(1,i),dudtcool)
