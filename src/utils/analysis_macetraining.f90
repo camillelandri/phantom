@@ -39,7 +39,7 @@ module analysis
 contains
 
 subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
- use part,       only: isdead_or_accreted, iorig, rhoh, nptmass, xyzmh_ptmass, iReff, iboundary, igas, iphase, iamtype, maxp
+ use part,       only: isdead_or_accreted, iorig, rhoh, nptmass, xyzmh_ptmass, iReff, iboundary, igas, iamtype, maxp
  use linklist,   only: set_linklist
  use units,      only: utime,unit_density,udist
  use physcon,    only: atomic_mass_unit
@@ -58,8 +58,7 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
  real,             intent(in) :: particlemass,time
  real, save    :: tprev = 0.
  integer, save :: nprev = 0
- real          :: dt_cgs, rho_cgs, numberdensity, T_gas, gammai, mui, AUV, xi &
-                , rholist(npart), Tlist(npart), mulist(npart), Auvlist(npart), xilist(npart)
+ real          :: dt_cgs, rho_cgs, numberdensity, T_gas, gammai, mui, AUV, xi
  real          :: abundance_part(krome_nmols), Y(krome_nmols), column_density(npart), xyzh_copy(4,npart)
  real          :: max_radius, radius
  integer       :: i, j, k, i_radius, ierr, completed_iterations, npart_copy = 0
@@ -84,7 +83,7 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
 
     ! make directory to store individual particle chemistry files in dumpfile directory
     ! get path from dumpfile
-    dir = trim(dir)//'chem_output/'
+    dir = trim(dir)//'chem_output_raytest/'
     print *, "Creating directory for chemistry output in ", dir
     inquire(file=dir, exist=ios)
     if (ios == 0) then
@@ -104,7 +103,7 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
     do i=1,ntrack
        read(iu,*) track_id(i)
     end do
-   close(iu) 
+   close(iu)
    print*, "Tracking ", ntrack, " particles"
    
    ! Initialise KROME and abundances
@@ -175,7 +174,6 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
     !$omp shared(npart,xyzh,vxyzu,dt_cgs,nprev,iorig,iorig_old,iprev,iverbose, dir) &
     !$omp shared(abundance,abundance_label,abundance_prev,particlemass,unit_density, mask, time, utime, udist) &
     !$omp shared(ieos,gamma,gmw,completed_iterations,column_density,AuvAv,albedo) &
-    !$omp shared(rholist,Tlist,mulist,Auvlist,xilist,iphase) &
     !$omp private(i,j,k,abundance_part,Y,rho_cgs,numberdensity,T_gas,gammai,mui,AUV,xi,radius,filename,iu,isize)
     outer: do i=1,npart
        if (mask(i) .eqv. .true. .and. .not. isdead_or_accreted(xyzh(4,i))) then
@@ -198,6 +196,12 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
          !Radiation quantities
          AUV = AuvAv * column_density(i) / (mui * atomic_mass_unit) / 1.87e21
          xi = get_xi(AUV)
+         if (AUV < 0.0) then
+            print*, "Warning: negative A_UV value for particle ", iorig(i)
+            print*, "Particle ", iorig(i), ": radius = ", radius, "cm, n = ", numberdensity, "cm^-3, T = ", T_gas, "K, AUV = ", AUV, "xi = ", xi, "column density = ", column_density(i), "cm^-2"
+            print*, "Skipping chemistry update for this particle"
+             cycle outer
+         endif
          call krome_set_user_Auv(AUV)
          call krome_set_user_xi(xi)
          call krome_set_user_alb(albedo)
@@ -298,7 +302,7 @@ subroutine write_chem(i,abundance_part,time,radius,numberdensity,T_gas,mui,AUV,x
       open(iu, file=trim(dir)//trim(adjustl(filename))//'.chem', status='old', action='write', position='append')
    endif 
       ! write physical parameters to file
-      write(iu, '(ES16.8,1x,ES14.7,1x,ES14.7,1x,F8.2,1x,F6.3,1x,F8.3,1x,F8.3,1x)',advance="no") time, radius, numberdensity, T_gas, mui, AUV, xi
+      write(iu, '(ES16.8,1x,ES14.7,1x,ES14.7,1x,F8.2,1x,F7.4,1x,ES14.7,1x,ES14.7,1x)',advance="no") time, radius, numberdensity, T_gas, mui, AUV, xi
       ! write abundances to file
    do k=1,krome_nmols
       write(iu, '(ES14.7,1x)', advance="no") abundance_part(k)
