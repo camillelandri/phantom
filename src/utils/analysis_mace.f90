@@ -270,9 +270,6 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
           do k = 5, real_size
              call log_and_scale(in_data(i,k), n_min, n_max) ! abundances
           enddo
-         if (iorig(i) == 5001) then
-             print*, " - Particle ", iorig(i), " has input data scaled ", in_data(i,1:4)
-          end if
        endif
     enddo outer
     !$omp end parallel do
@@ -337,21 +334,9 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     !$omp private(i,j)
     do i=1,npart
        ! Unscale abundances
-       if (iorig(i) == 5001) then
-          print*, " - Scaled abundances for particle ", iorig(i)
-          print*, "   > for H2: ", out_data(i,72)
-          print*, "   > for HE: ", out_data(i,173)
-          print*, "   > for CO: ", out_data(i,36)
-       end if
        do j = 1, abs_size
           call unscale_and_unlog(out_data(i,j), n_min, n_max)
        end do
-      if (iorig(i) == 5001) then
-          print*, " - Unscaled abundances for particle ", iorig(i)
-          print*, "   > for H2: ", out_data(i,72)
-          print*, "   > for HE: ", out_data(i,173)
-          print*, "   > for CO: ", out_data(i,37)
-       end if
        abundances(:,i) = out_data(i,:)
 
     end do
