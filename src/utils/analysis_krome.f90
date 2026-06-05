@@ -20,6 +20,7 @@ module analysis
  use krome_user, only: krome_nmols
  use part,       only: maxp
  use raytracer,  only: get_all_tau
+ use omp_lib, only : omp_get_max_threads
  implicit none
  character(len=20), parameter, public :: analysistype = 'krome'
  public :: do_analysis
@@ -31,6 +32,8 @@ module analysis
  integer, allocatable :: iprev(:)
  logical :: done_init = .false.
  real :: AuvAv = 4.65, albedo = 0.5
+
+ integer :: thread_count
 
 contains
 
@@ -52,6 +55,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  real          :: dt_cgs, rho_cgs, numberdensity, T_gas, gammai, mui, AUV, xi
  real          :: abundance_part(krome_nmols), Y(krome_nmols), column_density(npart), xyzh_copy(4,npart)
  integer       :: i, j, ierr, completed_iterations, npart_copy = 0
+ real          :: startTime, stopTime
 
  if (.not.done_init) then
     done_init = .true.
@@ -59,7 +63,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     call krome_init()
     print*, "Initialised KROME"
     abundance_label(:) = krome_get_names()
-    maxp = maxp /2
+    maxp = maxp
     allocate(abundance(krome_nmols,maxp))
     abundance = 0.
     allocate(abundance_prev(krome_nmols,maxp))
@@ -87,7 +91,10 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  else
     dt_cgs = (time - tprev)*utime
     completed_iterations = 0
+    thread_count = omp_get_max_threads()
+    print*, " - Running on ", thread_count, " threads"
     print*, "not first step data, timestep = ",dt_cgs, "npart = ",npart, "nprev = ",nprev
+    call cpu_time(startTime)
     xyzmh_ptmass(iReff,1) = 2.
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
@@ -135,10 +142,10 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
        endif
        !$omp atomic
        completed_iterations = completed_iterations + 1
-       print*, 'Completed ', completed_iterations, ' of ', npart
     enddo outer
+    call cpu_time(stopTime)
+    print*, "Completed in ",(stopTime-startTime)/thread_count," seconds"
  endif
-
  call write_chem(npart, dumpfile)
  nprev = npart
  tprev = time
