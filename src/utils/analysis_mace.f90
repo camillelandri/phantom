@@ -18,7 +18,7 @@ module analysis
 !
  use dvode_module
  use part,       only: maxp
- use raytracer,  only: get_all_tau
+ use raytracer,  only: get_all_tau_single
  use ftorch, only : torch_model, torch_tensor, torch_kCPU, torch_delete, &
                     torch_tensor_from_array, torch_model_load, torch_model_forward
  use omp_lib, only : omp_get_max_threads, omp_get_thread_num, omp_set_num_threads
@@ -200,7 +200,8 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
     call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
-    call get_all_tau(npart, nptmass, xyzmh_ptmass, xyzh, one, 5, .false., column_density)
+    ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
+    call get_all_tau_single(npart, xyzmh_ptmass(1:3,1), xyzmh_ptmass(iReff,1), xyzh, one, xyzmh_ptmass(iReff,1), 5, .false., column_density)
     max_radius = 0.0
     do i = 1, npart
        if (.not.isdead_or_accreted(xyzh(4, i))) then

@@ -19,7 +19,7 @@ module analysis
 !
  use krome_user, only: krome_nmols
  use part,       only: maxp
- use raytracer,  only: get_all_tau
+ use raytracer,  only: get_all_tau_single
  implicit none
  character(len=20), parameter, public :: analysistype = 'krome'
  public :: do_analysis
@@ -148,7 +148,8 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
     call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
-    call get_all_tau(npart, nptmass, xyzmh_ptmass, xyzh, one, 5, .false., column_density)
+    ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
+    call get_all_tau_single(npart, xyzmh_ptmass(1:3,1), xyzmh_ptmass(iReff,1), xyzh, one, xyzmh_ptmass(iReff,1), 5, .false., column_density)
     max_radius = 0.0
     do i = 1, npart
        if (.not.isdead_or_accreted(xyzh(4, i))) then
