@@ -128,7 +128,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     call torch_model_load(encoder, encoder_file, torch_kCPU)
     call torch_model_load(decoder, decoder_file, torch_kCPU)
     ! load minmax values
-    call read_minmax(trim(model_file)//'/'//trim('minmax.txt'), 12, minmax)
+    call read_minmax(trim(model_file)//'/'//trim('minmax.txt'), 11, minmax)
     rho_min = log10(minmax(1))
     rho_max = log10(minmax(2))
     T_min = log10(minmax(3))
