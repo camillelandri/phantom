@@ -25,7 +25,7 @@ module raytracer
  use healpix
 
  implicit none
- public :: get_all_tau
+ public :: get_all_tau, get_all_tau_single
 
  private
 
