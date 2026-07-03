@@ -20,7 +20,7 @@ module analysis
  use krome_user, only: krome_nmols
  use part,       only: maxp
  use raytracer,  only: get_all_tau
- use omp_lib, only : omp_get_max_threads
+ use omp_lib, only : omp_get_max_threads, omp_get_wtime
  implicit none
  character(len=20), parameter, public :: analysistype = 'krome'
  public :: do_analysis
@@ -55,7 +55,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  real          :: dt_cgs, rho_cgs, numberdensity, T_gas, gammai, mui, AUV, xi
  real          :: abundance_part(krome_nmols), Y(krome_nmols), column_density(npart), xyzh_copy(4,npart)
  integer       :: i, j, ierr, completed_iterations, npart_copy = 0
- real          :: startTime, stopTime
+ real          :: tstart
 
  if (.not.done_init) then
     done_init = .true.
@@ -95,21 +95,19 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     print*, " - Running on ", thread_count, " threads"
     print*, "not first step data, timestep = ",dt_cgs, "npart = ",npart, "nprev = ",nprev
     print*, "building neighbour list..."
-    call cpu_time(startTime)
+    tstart = omp_get_wtime()
     xyzmh_ptmass(iReff,1) = 2.
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
     call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
-    call cpu_time(stopTime)
-    print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
+    print*, "        - Took ", omp_get_wtime() - tstart, " seconds"
     print*, "Calculating column density..."
-    call cpu_time(startTime)
+    tstart = omp_get_wtime()
     call get_all_tau(npart, nptmass, xyzmh_ptmass, xyzh, one, 5, .false., column_density)
-    call cpu_time(stopTime)
-    print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
+    print*, "        - Took ", omp_get_wtime() - tstart, " seconds"
 
     print*, "Running KROME..."
-    call cpu_time(startTime)
+    tstart = omp_get_wtime()
     !$omp parallel do default(none) &
     !$omp shared(npart,xyzh,vxyzu,dt_cgs,nprev,iorig,iorig_old,iprev) &
     !$omp shared(abundance,abundance_prev,particlemass,unit_density) &
@@ -153,15 +151,13 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
        !$omp atomic
        completed_iterations = completed_iterations + 1
     enddo outer
-    call cpu_time(stopTime)
-    print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
+    print*, "        - Took ", omp_get_wtime() - tstart, " seconds"
  endif
 
  print*, "Writing chemical abundances to ",dumpfile//'.comp'
- call cpu_time(startTime)
+ tstart = omp_get_wtime()
  call write_chem(npart, dumpfile)
- call cpu_time(stopTime)
- print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
+ print*, "        - Took ", omp_get_wtime() - tstart, " seconds"
  nprev = npart
  tprev = time
  iorig_old(1:npart) = iorig(1:npart)
