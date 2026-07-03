@@ -94,12 +94,22 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     thread_count = omp_get_max_threads()
     print*, " - Running on ", thread_count, " threads"
     print*, "not first step data, timestep = ",dt_cgs, "npart = ",npart, "nprev = ",nprev
+    print*, "building neighbour list..."
     call cpu_time(startTime)
     xyzmh_ptmass(iReff,1) = 2.
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
     call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
+    call cpu_time(stopTime)
+    print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
+    print*, "Calculating column density..."
+    call cpu_time(startTime)
     call get_all_tau(npart, nptmass, xyzmh_ptmass, xyzh, one, 5, .false., column_density)
+    call cpu_time(stopTime)
+    print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
+
+    print*, "Running KROME..."
+    call cpu_time(startTime)
     !$omp parallel do default(none) &
     !$omp shared(npart,xyzh,vxyzu,dt_cgs,nprev,iorig,iorig_old,iprev) &
     !$omp shared(abundance,abundance_prev,particlemass,unit_density) &
@@ -144,9 +154,14 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
        completed_iterations = completed_iterations + 1
     enddo outer
     call cpu_time(stopTime)
-    print*, "Completed in ",(stopTime-startTime)/thread_count," seconds"
+    print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
  endif
+
+ print*, "Writing chemical abundances to ",dumpfile//'.comp'
+ call cpu_time(startTime)
  call write_chem(npart, dumpfile)
+ call cpu_time(stopTime)
+ print*, "        - Took ",(stopTime-startTime)/thread_count," seconds"
  nprev = npart
  tprev = time
  iorig_old(1:npart) = iorig(1:npart)
