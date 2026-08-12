@@ -265,13 +265,21 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     outer: do i=1,npart
     ! Loop over particles to build input arrays for MACE.
        if (.not.isdead_or_accreted(xyzh(4,i))) then
-          inner: do j=1,nprev
-             ! get previous index of particle
-             if (iorig(i) == iorig_old(j)) then
-                iprev(i) = j
-                exit inner
+         if (i <= nprev) then
+             if (iorig(i) == iorig_old(i)) then
+                iprev(i) = i
+                j = i
              endif
-          enddo inner
+          endif
+          if (iprev(i) == 0) then
+             inner: do k=1,nprev
+                if (iorig(i) == iorig_old(k)) then
+                   iprev(i) = k
+                   j = k
+                   exit inner
+                endif
+             enddo inner
+          endif
           ! Thermodynamic quantities
           rho_cgs = rhoh(xyzh(4,i),particlemass)*unit_density
           gammai = gamma
@@ -287,7 +295,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
          if (iorig(i) == 5001) then
              print*, " - Particle ", iorig(i), " has input data ", in_data(i,1:4)
           end if
-          if (j == iprev(i)) then
+          if (iprev(i) /= 0) then
              thread = omp_get_thread_num()
              ! if particle existed in previous dump, get previous abundances
              in_data(i,5:real_size) = abundance_prev(:,iprev(i))

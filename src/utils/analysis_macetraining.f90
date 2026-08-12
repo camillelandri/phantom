@@ -182,12 +182,21 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
     !$omp private(i,j,k,abundance_part,Y,rho_cgs,numberdensity,T_gas,gammai,mui,AUV,xi,radius,filename,iu,isize)
     outer: do i=1,npart
        if (mask(i) .eqv. .true. .and. .not. isdead_or_accreted(xyzh(4,i))) then
-          inner: do j=1,nprev
-             if (iorig(i) == iorig_old(j)) then
-                iprev(i) = j
-                exit inner
+          if (i <= nprev) then
+             if (iorig(i) == iorig_old(i)) then
+                iprev(i) = i
+                j = i
              endif
-          enddo inner
+          endif
+          if (iprev(i) == 0) then
+             inner: do k=1,nprev
+                if (iorig(i) == iorig_old(k)) then
+                   iprev(i) = k
+                   j = k
+                   exit inner
+                endif
+             enddo inner
+          endif
 
          !Thermodynamic quantities
          rho_cgs = rhoh(xyzh(4,i),particlemass)*unit_density
