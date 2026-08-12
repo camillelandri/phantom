@@ -330,8 +330,11 @@ subroutine read_chem(npart, dumpfile)
     return
  endif
 
+  ! open dataset for particle abundances
   ! open group for particle data
  call h5gopen_f(file_id, 'chemistry', group_id, hdferr)
+  ! open dataset for particle abundances
+ call h5dopen_f(group_id, 'abundances', dset_id, hdferr)
 
  call h5dget_space_f(dset_id, filespace_id, hdferr)
  call h5sget_simple_extent_dims_f(filespace_id, file_dims, max_dims, hdferr)
