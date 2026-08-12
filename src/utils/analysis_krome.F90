@@ -106,9 +106,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     else
        print*, "setting abundances"
        !$omp parallel do default(none) &
-       !$omp shared(npart,xyzh,vxyzu,dt_cgs,nprev,iorig,iorig_old,iprev) &
-       !$omp shared(abundance,abundance_prev,particlemass,unit_density) &
-       !$omp shared(ieos,rho_cgs,T_gas,j) &
+       !$omp shared(npart,xyzh,abundance_label,abundance) &
        !$omp private(i,abundance_part)
        do i=1, npart
           if (.not.isdead_or_accreted(xyzh(4,i))) then
