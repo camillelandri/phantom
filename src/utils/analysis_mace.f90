@@ -102,6 +102,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  integer,          intent(in) :: num,npart,iunit
  real,             intent(in) :: xyzh(:,:),vxyzu(:,:)
  real,             intent(in) :: particlemass,time
+ real, allocatable :: xyzmh_ptmass_copy(:,:)
  real, save    :: tprev = 0.
  integer, save :: nprev = 0
  type(torch_tensor), dimension(:), allocatable :: in_tensors, latent_tensors, latent_evolved_tensors, out_tensors
@@ -196,11 +197,15 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     thread_count = omp_get_max_threads()
     print*, " - Running on ", thread_count, " threads"
     call cpu_time(startTime)
-    xyzmh_ptmass(iReff,1) = 2.
+
+    ! build tree and compute column density
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
     call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
     ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
+    allocate(xyzmh_ptmass_copy(size(xyzmh_ptmass,1), size(xyzmh_ptmass,2)))
+    xyzmh_ptmass_copy(:,:) = xyzmh_ptmass(:,:) !to avoid overwriting the original ptmass array in the column density calculation
+    xyzmh_ptmass_copy(iReff,1) = 2.
     call get_all_tau_single(npart, xyzmh_ptmass(1:3,1), xyzmh_ptmass(iReff,1), xyzh, one, xyzmh_ptmass(iReff,1), 5, .false., column_density)
     max_radius = 0.0
     do i = 1, npart

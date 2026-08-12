@@ -144,10 +144,15 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
  
  else
     dt_cgs = (time - tprev)*utime
+    
+    ! build tree and compute column density
     npart_copy = npart
-    xyzh_copy = xyzh(:,:npart) !to avoid overwriting the original xyzh array when building the tree
-    call build_tree(npart_copy,npart_copy,xyzh_copy,vxyzu)
+    xyzh_copy = xyzh(:,:npart)
+    call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
     ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
+    allocate(xyzmh_ptmass_copy(size(xyzmh_ptmass,1), size(xyzmh_ptmass,2)))
+    xyzmh_ptmass_copy(:,:) = xyzmh_ptmass(:,:) !to avoid overwriting the original ptmass array in the column density calculation
+    xyzmh_ptmass_copy(iReff,1) = 2.
     call get_all_tau_single(npart, xyzmh_ptmass(1:3,1), xyzmh_ptmass(iReff,1), xyzh, one, xyzmh_ptmass(iReff,1), 5, .false., column_density)
     max_radius = 0.0
     do i = 1, npart
