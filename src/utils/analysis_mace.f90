@@ -17,12 +17,13 @@ module analysis
 ! :Dependencies: None
 !
  use dvode_module
+ use hdf5
  use part,       only: maxp
  use raytracer,  only: get_all_tau_single
  use ftorch, only : torch_model, torch_tensor, torch_kCPU, torch_delete, &
                     torch_tensor_from_array, torch_model_load, torch_model_forward
  use omp_lib, only : omp_get_max_threads, omp_get_thread_num, omp_set_num_threads, omp_get_wtime
- use hdf5
+ use io,         only: fatal, iverbose
 
  implicit none
  character(len=20), parameter, public :: analysistype = 'mace'
@@ -98,7 +99,6 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  use units,      only: utime,unit_density,udist
  use physcon,    only: atomic_mass_unit
  use eos,        only: get_temperature, ieos, gamma,gmw, init_eos
- use io,         only: fatal, iverbose
 
  character(len=*), intent(in) :: dumpfile
  integer,          intent(in) :: num,npart,iunit
@@ -114,7 +114,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  integer       :: i, j, k, i_radius, ierr, npart_copy = 0
  integer       :: iu=10,ios
  character(len=9) :: filename
- integer :: isize
+ integer :: isize, hdferr
 
  if (.not.done_init) then
     done_init = .true.
@@ -223,7 +223,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     tstart = omp_get_wtime()
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
-    call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
+    call build_tree(npart_copy,npart_copy,xyzh_copy,vxyzu)
     tprocess = omp_get_wtime() - tstart
     print*, "     - time taken = ", tprocess, " seconds"
     time_count = tprocess
@@ -396,7 +396,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
 
  ! write and store current step data before moving on to next step
  tstart = omp_get_wtime()
- call write_chem(npart, dumpfile, saved_labels, saved_labels_i)
+ call write_chem(npart, dumpfile)
  tprocess = omp_get_wtime() - tstart
  print*, "     - time taken to write abundances = ", tprocess, " seconds"
  time_count = time_count + tprocess
@@ -461,7 +461,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       ! create group for particle data
       call h5gcreate_f(file_id, 'chemistry', group_id, hdferr)
       ! create dataspace for particle datasets
-      dims(1) = krome_nmols
+      dims(1) = abs_size
       dims(2) = npart
       call h5screate_simple_f(2, dims, dspace_id, hdferr)
       ! create one 2D dataset for all species abundances:
@@ -474,7 +474,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       call h5dclose_f(dset_id, hdferr)
 
       ! store species labels so abundances row i is always identifiable
-      dims_labels(1) = krome_nmols
+      dims_labels(1) = abs_size
       call h5screate_simple_f(1, dims_labels, dspace_id, hdferr)
       call h5tcopy_f(H5T_FORTRAN_S1, type_id, hdferr)
       str_len = len(abundance_label(1))
@@ -498,7 +498,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       integer(hsize_t) :: max_dims(2), file_dims(2)
       integer(hsize_t) :: max_dims_labels(1), file_dims_labels(1)
       integer(size_t)  :: str_len
-      character(len=16) :: labels_file(krome_nmols)
+      character(len=16) :: labels_file(abs_size)
 
       ! open HDF5 file
       print "(1x,a)",'Reading from '//trim(dumpfile)//'.h5'
@@ -513,7 +513,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
 
       call h5dget_space_f(dset_id, filespace_id, hdferr)
       call h5sget_simple_extent_dims_f(filespace_id, file_dims, max_dims, hdferr)
-      if (file_dims(1) /= krome_nmols .or. file_dims(2) /= npart) then
+      if (file_dims(1) /= abs_size .or. file_dims(2) /= npart) then
          print*,'ERROR: abundances shape mismatch in HDF5 file'
          return
       endif
@@ -526,7 +526,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       call h5dopen_f(group_id, 'species_labels', dset_id, hdferr)
       call h5dget_space_f(dset_id, filespace_id, hdferr)
       call h5sget_simple_extent_dims_f(filespace_id, file_dims_labels, max_dims_labels, hdferr)
-      if (file_dims_labels(1) /= krome_nmols) then
+      if (file_dims_labels(1) /= abs_size) then
          call fatal(analysistype, 'species_labels length mismatch in HDF5 file')
       endif
 
@@ -535,7 +535,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       call h5tset_size_f(type_id, str_len, hdferr)
       call h5dread_f(dset_id, type_id, labels_file, file_dims_labels, hdferr)
 
-      do i = 1, krome_nmols
+      do i = 1, abs_size
          if (trim(adjustl(labels_file(i))) /= trim(adjustl(abundance_label(i)))) then
             print*,'ERROR: species_labels mismatch at index ', i
             call fatal(analysistype, 'species_labels mismatch in HDF5 file')
@@ -738,11 +738,11 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       close(unit_num)
    end subroutine read_metadata
 
- subroutine chem_init(abundance, abundance_label)
+ subroutine chem_init(abundances, abundance_label)
     ! Subroutine to initialise chemical abundance
     implicit none
     character(len=16), dimension(:), intent(in) :: abundance_label
-    real, dimension(size(abundance_label)), intent(out) :: abundance
+    real, dimension(size(abundance_label)), intent(out) :: abundances
     integer :: i
     ! Initial abundance for the krome model taken from Agúndez et al. (2020)
     ! H2, He, CO, C2H2, HCN, N2, SiC2, CS, SiS, SiO, CH4, H2O, HCl, C2H4, NH3, HCP, HF, H2S, E

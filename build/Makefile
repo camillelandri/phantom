@@ -120,7 +120,8 @@ endif
 #--- MACE (postprocessing only for now)
 ifeq ($(MACE), yes)
     ANALYSIS=analysis_mace.f90
-    # requires DVODE and FTorch to be installed
+    # requires DVODE, FTorch and HDF5 to be installed
+    HDF5 := yes
     FTorch_PATH = /home/camille/software/FTorchbin
     DVODE_PATH = /STER/hydroModels/camille/phantom/macetraining/MACE/MACE_fortran/dvode
     FPPFLAGS+= -DMACE
