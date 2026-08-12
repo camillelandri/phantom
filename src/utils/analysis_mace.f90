@@ -466,7 +466,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       call h5screate_simple_f(2, dims, dspace_id, hdferr)
       ! create one 2D dataset for all species abundances:
       call h5dcreate_f(group_id, 'abundances', H5T_NATIVE_DOUBLE, dspace_id, dset_id, hdferr)
-      call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, abundance(:,1:npart), dims, hdferr)
+      call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, abundances(:,1:npart), dims, hdferr)
       if (hdferr /= 0) then
          print*,'ERROR: Failed to write dataset abundances'
          return
@@ -518,7 +518,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
          return
       endif
 
-      call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, abundance(:,1:npart), file_dims, hdferr)
+      call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, abundances(:,1:npart), file_dims, hdferr)
       call h5dclose_f(dset_id, hdferr)
       call h5sclose_f(filespace_id, hdferr)
 
@@ -748,43 +748,43 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     ! H2, He, CO, C2H2, HCN, N2, SiC2, CS, SiS, SiO, CH4, H2O, HCl, C2H4, NH3, HCP, HF, H2S, E
     do i = 1, size(abundance_label)
        if (abundance_label(i) == 'H2') then
-          abundance(i) = 0.5d0
+          abundances(i) = 0.5d0
        else if (abundance_label(i) == 'HE') then
-          abundance(i) = 8.5d-2
+          abundances(i) = 8.5d-2
        else if (abundance_label(i) == 'CO') then
-          abundance(i) = 4.0d-4
+          abundances(i) = 4.0d-4
        else if (abundance_label(i) == 'C2H2') then
-          abundance(i) = 2.19d-5
+          abundances(i) = 2.19d-5
        else if (abundance_label(i) == 'HCN') then
-          abundance(i) = 2.045d-5
+          abundances(i) = 2.045d-5
        else if (abundance_label(i) == 'N2') then
-          abundance(i) = 2.0d-5
+          abundances(i) = 2.0d-5
        else if (abundance_label(i) == 'SIC2') then
-          abundance(i) = 9.35d-6
+          abundances(i) = 9.35d-6
        else if (abundance_label(i) == 'CS') then
-          abundance(i) = 5.3d-6
+          abundances(i) = 5.3d-6
        else if (abundance_label(i) == 'SIS') then
-          abundance(i) = 2.99d-6
+          abundances(i) = 2.99d-6
        else if (abundance_label(i) == 'SIO') then
-          abundance(i) = 2.51d-6
+          abundances(i) = 2.51d-6
        else if (abundance_label(i) == 'CH4') then
-          abundance(i) = 1.75d-6
+          abundances(i) = 1.75d-6
        else if (abundance_label(i) == 'H2O') then
-          abundance(i) = 1.275d-6
+          abundances(i) = 1.275d-6
        else if (abundance_label(i) == 'HCL') then
-          abundance(i) = 1.625d-7
+          abundances(i) = 1.625d-7
        else if (abundance_label(i) == 'C2H4') then
-          abundance(i) = 3.425d-8
+          abundances(i) = 3.425d-8
        else if (abundance_label(i) == 'NH3') then
-          abundance(i) = 3.0d-8
+          abundances(i) = 3.0d-8
        else if (abundance_label(i) == 'HCP') then
-          abundance(i) = 1.25d-8
+          abundances(i) = 1.25d-8
        else if (abundance_label(i) == 'HF') then
-          abundance(i) = 8.5d-9
+          abundances(i) = 8.5d-9
        else if (abundance_label(i) == 'H2S') then
-          abundance(i) = 2.0d-9
+          abundances(i) = 2.0d-9
        else
-          abundance(i) = 0.0
+          abundances(i) = 0.0
        end if
     end do
    end subroutine chem_init
