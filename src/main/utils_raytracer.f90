@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------!
 ! The Phantom Smoothed Particle Hydrodynamics code, by Daniel Price et al. !
-! Copyright (c) 2007-2025 The Authors (see AUTHORS)                        !
+! Copyright (c) 2007-2026 The Authors (see AUTHORS)                        !
 ! See LICENCE file for usage and distribution conditions                   !
 ! http://phantomsph.github.io/                                             !
 !--------------------------------------------------------------------------!
@@ -20,7 +20,7 @@ module raytracer
 !
 ! :Runtime parameters: None
 !
-! :Dependencies: healpix, kernel, linklist, part, units
+! :Dependencies: healpix, kernel, neighkdtree, part, units
 !
  use healpix
 
@@ -85,8 +85,8 @@ end subroutine get_all_tau
  !  OUT: taus:           The array of optical depths to each SPH particle
  !+
  !---------------------------------------------------------------------------------
-subroutine get_all_tau_single(npart, primary, Rstar, xyzh, kappa, Rinject, order, outwards, tau)
- use part, only : isdead_or_accreted
+subroutine get_all_tau_single(npart, primary, Rstar, xyzh, kappa, Rinject, order, outwards, outwards, tau)
+ use part, only:isdead_or_accreted
  integer, intent(in) :: npart,order
  real, intent(in)    :: primary(3), Rstar, xyzh(:,:), kappa(:), Rinject
  logical, intent(in) :: outwards
@@ -122,7 +122,6 @@ subroutine get_all_tau_single(npart, primary, Rstar, xyzh, kappa, Rinject, order
  enddo
  !$omp enddo
  !$omp end parallel
-
 
  !_----------------------------------------------
  ! DETERMINE the optical depth for each particle
@@ -167,8 +166,8 @@ end subroutine get_all_tau_single
  !  OUT: tau:            The array of optical depths for each SPH particle
  !+
  !--------------------------------------------------------------------------
-subroutine get_all_tau_companion(npart, primary, Rstar, xyzh, kappa, Rinject, companion, Rcomp, order, outwards, tau)
- use part, only : isdead_or_accreted
+subroutine get_all_tau_companion(npart, primary, Rstar, xyzh, kappa, Rinject, companion, Rcomp, order, outwards, outwards, tau)
+ use part, only:isdead_or_accreted
  integer, intent(in) :: npart, order
  real, intent(in)    :: primary(3), companion(3), kappa(:), Rstar, Rinject, xyzh(:,:), Rcomp
  logical, intent(in) :: outwards
@@ -318,7 +317,6 @@ subroutine interpolate_tau(nsides, vec, rays_tau, rays_dist, rays_dim, tau)
  enddo
  tau = tau / weight
 end subroutine interpolate_tau
-
 
  !--------------------------------------------------------------------------
  !+
@@ -485,7 +483,7 @@ end function hasNext
  !+
  !--------------------------------------------------------------------------
 subroutine find_next(inpoint, h, ray, xyzh, kappa, dtaudr, distance, inext)
- use linklist, only:getneigh_pos,ifirstincell,listneigh
+ use neighkdtree, only:getneigh_pos,leaf_is_active,listneigh
  use kernel,   only:radkern,cnormk,wkern
  use part,     only:hfact,rhoh,massoftype,igas
  real,    intent(in)    :: xyzh(:,:), kappa(:), inpoint(:), ray(:), h
@@ -493,7 +491,7 @@ subroutine find_next(inpoint, h, ray, xyzh, kappa, dtaudr, distance, inext)
  real,    intent(out)   :: distance, dtaudr
 
  integer, parameter :: nmaxcache = 0
- real  :: xyzcache(0,nmaxcache)
+ real :: xyzcache(3, max(1,nmaxcache))
 
  integer  :: nneigh, i, prev
  real     :: dmin, vec(3), dr, raydistance, q, norm_sq
@@ -503,7 +501,7 @@ subroutine find_next(inpoint, h, ray, xyzh, kappa, dtaudr, distance, inext)
  distance = 0.
 
  !for a given point (inpoint), returns the list of neighbouring particles (listneigh) within a radius h*radkern
- call getneigh_pos(inpoint,0.,h*radkern,3,listneigh,nneigh,xyzcache,nmaxcache,ifirstincell)
+ call getneigh_pos(inpoint,0.,h*radkern,listneigh,nneigh,xyzcache,nmaxcache,leaf_is_active)
 
  dtaudr = 0.
  dmin = huge(0.)

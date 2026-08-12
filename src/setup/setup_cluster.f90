@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------!
 ! The Phantom Smoothed Particle Hydrodynamics code, by Daniel Price et al. !
-! Copyright (c) 2007-2025 The Authors (see AUTHORS)                        !
+! Copyright (c) 2007-2026 The Authors (see AUTHORS)                        !
 ! See LICENCE file for usage and distribution conditions                   !
 ! http://phantomsph.github.io/                                             !
 !--------------------------------------------------------------------------!
@@ -20,6 +20,7 @@ module setup
 !   - Rsink_au    : *sink radius in au*
 !   - Temperature : *Temperature*
 !   - dist_fac    : *distance unit in pc*
+!   - iH2R_in     : *HII feedback algorithm id*
 !   - ieos_in     : *eq. of state (1: isothermal, 8: barotropic, 21: HII region)*
 !   - mass_fac    : *mass unit in Msun*
 !   - mu          : *mean molecular weight*
@@ -28,10 +29,10 @@ module setup
 !
 ! :Dependencies: HIIRegion, centreofmass, cooling, datafiles, dim, eos,
 !   infile_utils, io, kernel, mpidomain, options, part, physcon, prompting,
-!   ptmass, setup_params, setvfield, spherical, subgroup, timestep, units,
-!   utils_shuffleparticles, velfield
+!   ptmass, setup_params, setvfield, spherical, subgroup, systemutils,
+!   timestep, units, utils_shuffleparticles, velfield
 !
- use dim, only: maxvxyzu,mhd
+ use dim, only:maxvxyzu,mhd
  implicit none
  public :: setpart
 
@@ -75,6 +76,7 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
  use cooling,      only:Tfloor
  use options,      only:icooling
  use infile_utils, only:get_options,infile_exists
+ use systemutils,  only:get_command_option
  use utils_shuffleparticles, only:shuffleparticles
  integer,           intent(in)    :: id
  integer,           intent(out)   :: npart
@@ -97,7 +99,7 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
  if (mhd) call fatal('setup_cluster','This setup is not consistent with MHD.')
 
  !--Set default values
- np          = size(xyzh(1,:))
+ np          = int(get_command_option('np',default=size(xyzh(1,:)))) ! can set default value with --np=1e5 flag (mainly for testsuite)
  gamma       = 1.0           ! irrelevant for ieos = 1,8
  Temperature = 10.0          ! Temperature in Kelvin (required for polyK only)
  Rsink_au    = 5.            ! Sink radius [au]
@@ -185,7 +187,7 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
        r_merge_uncond  = h_acc
        use_regnbody    = .true.
        r_neigh         = 5e-2*h_acc
-       f_crit_override = 100.
+       f_crit_override = 3000.
        if (maxvxyzu >= 4) then
           gamma   = 5./3.
           Tfloor  = 6.
@@ -221,9 +223,10 @@ end subroutine setpart
 !
 !----------------------------------------------------------------
 subroutine get_defaults_cluster(icluster,default_cluster)
- integer, intent(in) :: icluster
+ integer,          intent(in)  :: icluster
  character(len=*), intent(out) :: default_cluster
 
+ iH2R_in = 0
  select case (icluster)
  case(4)
     ! Young Massive Cluster (S. Jaffa, University of Hertfordshire)
@@ -305,7 +308,7 @@ end subroutine get_input_from_prompts
 !+
 !----------------------------------------------------------------
 subroutine write_setupfile(filename)
- use infile_utils, only: write_inopt
+ use infile_utils, only:write_inopt
  character(len=*), intent(in) :: filename
  integer, parameter           :: iunit = 20
 
@@ -328,6 +331,8 @@ subroutine write_setupfile(filename)
                                     ' [if .in file does not exist]',iunit)
  write(iunit,"(/,a)") '# options for sink particles'
  call write_inopt(Rsink_au,'Rsink_au','sink radius in au',iunit)
+ write(iunit,"(/,a)") '# options for HII feedback'
+ call write_inopt(iH2R_in, 'iH2R_in','HII feedback algorithm id', iunit)
  close(iunit)
 
 end subroutine write_setupfile
@@ -338,7 +343,7 @@ end subroutine write_setupfile
 !+
 !----------------------------------------------------------------
 subroutine read_setupfile(filename,ierr)
- use infile_utils, only: open_db_from_file,inopts,read_inopt,close_db
+ use infile_utils, only:open_db_from_file,inopts,read_inopt,close_db
  use io,           only: error
  use units,        only: select_unit
  character(len=*), intent(in)  :: filename
@@ -358,6 +363,7 @@ subroutine read_setupfile(filename,ierr)
  call read_inopt(Temperature,'Temperature',db,errcount=nerr)
  call read_inopt(relax, 'relax',db,errcount=nerr)
  call read_inopt(mu,'mu',db,errcount=nerr)
+ call read_inopt(iH2R_in,'iH2R_in',db,errcount=nerr)
  if (maxvxyzu < 4) call read_inopt(ieos_in,'ieos_in',db,errcount=nerr)
  call read_inopt(Rsink_au,'Rsink_au',db,errcount=nerr)
  call close_db(db)

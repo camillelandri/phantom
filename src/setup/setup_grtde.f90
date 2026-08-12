@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------!
 ! The Phantom Smoothed Particle Hydrodynamics code, by Daniel Price et al. !
-! Copyright (c) 2007-2025 The Authors (see AUTHORS)                        !
+! Copyright (c) 2007-2026 The Authors (see AUTHORS)                        !
 ! See LICENCE file for usage and distribution conditions                   !
 ! http://phantomsph.github.io/                                             !
 !--------------------------------------------------------------------------!
@@ -14,6 +14,7 @@ module setup
 !
 ! :Runtime parameters:
 !   - beta           : *penetration factor*
+!   - charge         : *charge of black hole*
 !   - dumpsperorbit  : *number of dumps per orbit*
 !   - ecc_bh         : *eccentricity (1 for parabolic)*
 !   - mhole          : *mass of black hole (solar mass)*
@@ -37,14 +38,15 @@ module setup
 !   - z2             : *pos z star 2*
 !
 ! :Dependencies: eos, externalforces, gravwaveutils, infile_utils, io,
-!   kernel, mpidomain, options, orbits, part, physcon, relaxstar,
-!   setbinary, setorbit, setstar, setunits, setup_params, systemutils,
-!   timestep, units, vectorutils
+!   kernel, metric_tools, mpidomain, options, orbits, part, physcon,
+!   relaxstar, setbinary, setorbit, setstar, setunits, setup_params,
+!   systemutils, timestep, units, vectorutils
 !
 
  use setstar,        only:star_t
  use setorbit,       only:orbit_t
- use externalforces, only:mass1,a
+ use externalforces, only:mass1,a,charge
+ use metric_tools,   only:imetric,imet_rn
  implicit none
  public :: setpart
 
@@ -92,15 +94,15 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
  use setunits,       only:mass_unit
  use infile_utils,   only:get_options
  use, intrinsic                   :: ieee_arithmetic
- integer,           intent(in)    :: id
- integer,           intent(inout) :: npart
- integer,           intent(out)   :: npartoftype(:)
- real,              intent(out)   :: xyzh(:,:)
- real,              intent(out)   :: massoftype(:)
- real,              intent(out)   :: polyk,gamma,hfact
- real,              intent(inout) :: time
- character(len=20), intent(in)    :: fileprefix
- real,              intent(out)   :: vxyzu(:,:)
+ integer,          intent(in)    :: id
+ integer,          intent(inout) :: npart
+ integer,          intent(out)   :: npartoftype(:)
+ real,             intent(out)   :: xyzh(:,:)
+ real,             intent(out)   :: massoftype(:)
+ real,             intent(out)   :: polyk,gamma,hfact
+ real,             intent(inout) :: time
+ character(len=*), intent(in)    :: fileprefix
+ real,             intent(out)   :: vxyzu(:,:)
  integer :: ierr,np_default
  integer :: nptmass_in
  integer :: i
@@ -109,7 +111,6 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
  real    :: vxyzstar(3),xyzstar(3),vec(3)
  real    :: r0,vel,lorentz
  real    :: vhat(3),x0,y0
- real    :: semi_maj_val
  real    :: mstars(max_stars),rstars(max_stars),haccs(max_stars)
  real    :: xyzmh_ptmass_in(nsinkproperties,2),vxyz_ptmass_in(3,2),angle
  real    :: alpha,delta_v,epsilon_target,tol
@@ -140,6 +141,7 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
  mass_unit       = '1.e6*solarm'
  racc            = '6.'
  mhole           = 1.e6  ! (solar masses)
+ charge          = 0.
  call set_units(mass=mhole*solarm,c=1.d0,G=1.d0) !--Set central mass to M=1 in code units
  call set_defaults_stars(star)
  call set_defaults_orbit(orbit)
@@ -209,10 +211,9 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
     rtidal          = rstars(1) * (mass1/mstars(1))**(1./3.)
     rp              = rtidal/beta
  else
-    semi_maj_val = in_code_units(orbit%elems%semi_major_axis,ierr,unit_type='length')
     ! for a binary, tidal radius is given by
     ! orbit.an * (MM / mm)**(1/3) where mm is mass of binary and orbit.an is semi-major axis of binary
-    rtidal          = semi_maj_val * (mass1 / (mstars(1) + mstars(2)))**(1./3.)
+    rtidal          = orbit%a * (mass1 / (mstars(1) + mstars(2)))**(1./3.)
     rp              = rtidal/beta
  endif
 
@@ -221,8 +222,8 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
  if (ierr /= 0) call fatal('setup','could not convert racc to code units')
  accradius1 = accradius1_hard
 
- a        = 0.
- theta_bh = theta_bh*pi/180.
+ a         = 0.
+ theta_bh  = theta_bh*pi/180.
 
  if (id==master) then
     print "(4(/,1x,a,1f10.3))",' black hole mass: ',mass1, &
@@ -338,7 +339,7 @@ subroutine setpart(id,npart,npartoftype,xyzh,massoftype,vxyzu,polyk,gamma,hfact,
     enddo
  endif
 
- call shift_stars(nstar,star,xyzmh_ptmass_in(1:3,1:nstar),vxyz_ptmass_in(1:3,1:nstar),&
+ call shift_stars(nstar,star,xyzmh_ptmass_in,vxyz_ptmass_in,&
                   xyzh,vxyzu,xyzmh_ptmass,vxyz_ptmass,npart,&
                   npartoftype,nptmass)
 
@@ -372,7 +373,6 @@ subroutine write_setupfile(filename)
  use setorbit,     only:write_options_orbit
  use eos,          only:ieos
  use setunits,     only:write_options_units
-
  character(len=*), intent(in) :: filename
  integer :: iunit
 
@@ -384,6 +384,7 @@ subroutine write_setupfile(filename)
 
  write(iunit,"(/,a)") '# options for central object'
  call write_inopt(mhole,  'mhole', 'mass of black hole (solar mass)',  iunit)
+ if (imetric == imet_rn) call write_inopt(charge, 'charge', 'charge of black hole', iunit)
  call write_inopt(racc, 'racc', 'accretion radius for the central object (code units or e.g. 1*km)', iunit)
  call write_options_stars(star,relax,write_profile,ieos,iunit,nstar)
 
@@ -424,15 +425,16 @@ subroutine read_setupfile(filename,ierr)
  use setstar,      only:read_options_star,read_options_stars
  use relaxstar,    only:read_options_relax
  use physcon,      only:solarm,solarr
- use units,        only:set_units,umass
+ use units,        only:set_units,umass,in_code_units
  use setorbit,     only:read_options_orbit
  use eos,          only:ieos
  use setunits,     only:read_options_and_set_units
- character(len=*), intent(in)    :: filename
- integer,          intent(out)   :: ierr
+ character(len=*), intent(in)  :: filename
+ integer,          intent(out) :: ierr
  integer, parameter :: iunit = 21
  integer :: nerr
  type(inopts), allocatable :: db(:)
+ real :: m1,m2
 
  print "(a)",'reading setup options from '//trim(filename)
  nerr = 0
@@ -443,6 +445,7 @@ subroutine read_setupfile(filename,ierr)
  !--read black hole mass in solar masses
  !
  call read_inopt(mhole,'mhole',db,min=0.,errcount=nerr)
+ if (imetric == imet_rn) call read_inopt(charge,'charge',db,errcount=nerr)
  call read_inopt(racc, 'racc', db,errcount=nerr)
  mass1 = mhole*solarm/umass
  !
@@ -466,7 +469,9 @@ subroutine read_setupfile(filename,ierr)
     call read_inopt(norbits,        'norbits',        db,min=0.,errcount=nerr)
     call read_inopt(dumpsperorbit,  'dumpsperorbit',  db,min=0 ,errcount=nerr)
     if (nstar > 1) then
-       call read_options_orbit(orbit,db,nerr)
+       m1 = in_code_units(star(1)%m,ierr,unit_type='mass')
+       m2 = in_code_units(star(2)%m,ierr,unit_type='mass')
+       call read_options_orbit(orbit,m1,m2,db,nerr)
     endif
  else
     call read_params(db,nerr,nstar)
@@ -513,8 +518,8 @@ end subroutine write_params
 subroutine read_params(db,nerr,nstar)
  use infile_utils, only:inopts,read_inopt
  type(inopts), allocatable, intent(inout) :: db(:)
- integer,      intent(inout) :: nerr
- integer,      intent(in)    :: nstar
+ integer,                   intent(inout) :: nerr
+ integer,                   intent(in)    :: nstar
 
  call read_inopt(x1, 'x1', db,errcount=nerr)
  call read_inopt(y1, 'y1', db,errcount=nerr)

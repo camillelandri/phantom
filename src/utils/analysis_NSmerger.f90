@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------!
 ! The Phantom Smoothed Particle Hydrodynamics code, by Daniel Price et al. !
-! Copyright (c) 2007-2025 The Authors (see AUTHORS)                        !
+! Copyright (c) 2007-2026 The Authors (see AUTHORS)                        !
 ! See LICENCE file for usage and distribution conditions                   !
 ! http://phantomsph.github.io/                                             !
 !--------------------------------------------------------------------------!
@@ -24,8 +24,8 @@ module analysis
  use part,            only: rhoh
  use physcon,         only: pi
  use centreofmass,    only: get_centreofmass
- use readwrite_dumps, only: opened_full_dump
- use extern_gwinspiral, only:Nstar
+ use readwrite_dumps, only:opened_full_dump
+ use extern_gwinspiral, only:Nstar_gw
  implicit none
  character(len=20), parameter, public :: analysistype = 'NSmerger'
  !
@@ -75,8 +75,8 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     !
     !--Get the index range for each star
     ! (Note from DJP: This should now be automatically read from the dump header)
-    if (Nstar(1) <= 0) call fatal('analysis_NSmerger','Require Nstar(1) > 0 in header of dump file')
-    if (Nstar(2) <= 0) call fatal('analysis_NSmerger','Require Nstar(2) > 0 in header of dump file')
+    if (Nstar_gw(1) <= 0) call fatal('analysis_NSmerger','Require Nstar_gw(1) > 0 in header of dump file')
+    if (Nstar_gw(2) <= 0) call fatal('analysis_NSmerger','Require Nstar_gw(2) > 0 in header of dump file')
     !
     !--Prompt for the density_cut off
     if (choice > 1) then
@@ -148,8 +148,8 @@ subroutine trace_com(dumpfile,xyzh,vxyzu,time,npart,iunit)
  endif
  !
  !--Get centre of masses of the stars
- call get_centreofmass(com1,vcom1,nstar(1),xyzh(:,1:nstar(1)),vxyzu(:,1:nstar(1)))
- call get_centreofmass(com2,vcom2,nstar(2),xyzh(:,nstar(1)+1:npart),vxyzu(:,nstar(1)+1:npart))
+ call get_centreofmass(com1,vcom1,Nstar_gw(1),xyzh(:,1:Nstar_gw(1)),vxyzu(:,1:Nstar_gw(1)))
+ call get_centreofmass(com2,vcom2,Nstar_gw(2),xyzh(:,Nstar_gw(1)+1:npart),vxyzu(:,Nstar_gw(1)+1:npart))
  !
  rad = sqrt( (com1(1)-com2(1))**2 + (com1(2)-com2(2))**2 + (com1(3)-com2(3))**2 )
  !
@@ -336,7 +336,7 @@ end subroutine calculate_I
 !+
 !-----------------------------------------------------------------------
 subroutine calculate_midplane_profile(dumpfile,xyzh,vxyzu,npart,iunit,particlemass)
- use part, only: alphaind
+ use part, only:alphaind
  character(len=*), intent(in) :: dumpfile
  integer,          intent(in) :: npart,iunit
  real,             intent(in) :: xyzh(:,:),vxyzu(:,:)
@@ -438,7 +438,7 @@ subroutine calculate_midplane_profile(dumpfile,xyzh,vxyzu,npart,iunit,particlema
  !Set radii and calculate volume of slice bins
  rmax = maxval(rtocm)
  do i = 1,nbins
-    radbin(i) = rmax*float(i)/float(nbins)
+    radbin(i) = rmax*real(i)/real(nbins)
     if (i==1) then
        vol(i) = thickness*dtheta*radbin(1)**2
     else
@@ -472,20 +472,20 @@ subroutine calculate_midplane_profile(dumpfile,xyzh,vxyzu,npart,iunit,particlema
  !--Convert totals to averages for each bin
  do i = 1,nbins
     if (bincountmaj(i) > 0) then
-       avvinbinmaj(i) = vinbinmaj(i)  /float(bincountmaj(i))
-       alphabinmaj(i) = alphabinmaj(i)/float(bincountmaj(i))
-       partdensmaj(i) = float(bincountmaj(i))*particlemass/vol(i)
+       avvinbinmaj(i) = vinbinmaj(i)  /real(bincountmaj(i))
+       alphabinmaj(i) = alphabinmaj(i)/real(bincountmaj(i))
+       partdensmaj(i) = real(bincountmaj(i))*particlemass/vol(i)
     endif
     if (bincountmin(i) > 0) then
-       avvinbinmin(i) = vinbinmin(i)  /float(bincountmin(i))
-       alphabinmin(i) = alphabinmin(i)/float(bincountmin(i))
-       partdensmin(i) = float(bincountmin(i))*particlemass/vol(i)
-       print*, partdensmin(i) ,float(bincountmin(i)),particlemass,vol(i)
+       avvinbinmin(i) = vinbinmin(i)  /real(bincountmin(i))
+       alphabinmin(i) = alphabinmin(i)/real(bincountmin(i))
+       partdensmin(i) = real(bincountmin(i))*particlemass/vol(i)
+       print*, partdensmin(i) ,real(bincountmin(i)),particlemass,vol(i)
     endif
     if (bincountavg(i) > 0) then
-       avvinbinavg(i) = vinbinavg(i)  /float(bincountavg(i))
-       alphabinavg(i) = alphabinavg(i)/float(bincountavg(i))
-       partdensavg(i) = float(bincountavg(i))*particlemass/(vol(i)*pi/dtheta)
+       avvinbinavg(i) = vinbinavg(i)  /real(bincountavg(i))
+       alphabinavg(i) = alphabinavg(i)/real(bincountavg(i))
+       partdensavg(i) = real(bincountavg(i))*particlemass/(vol(i)*pi/dtheta)
     endif
  enddo
  !
@@ -505,11 +505,11 @@ end subroutine calculate_midplane_profile
 !+
 !-----------------------------------------------------------------------
 subroutine get_momentofinertia(xyzh,npart,npartused,principle,evectors,particlemass,rmax)
- integer,          intent(in)  :: npart
- integer,          intent(out) :: npartused
- real,             intent(in)  :: xyzh(:,:)
- real,             intent(in)  :: particlemass
- real,             intent(out) :: principle(3), evectors(3,3),rmax
+ integer, intent(in)  :: npart
+ integer, intent(out) :: npartused
+ real,    intent(in)  :: xyzh(:,:)
+ real,    intent(in)  :: particlemass
+ real,    intent(out) :: principle(3), evectors(3,3),rmax
  integer                       :: i
  real                          :: inertia(3,3)
  real                          :: x,y,z,r2,rmax2
@@ -569,7 +569,7 @@ subroutine jacobi(a,n,np,d,v,nrot)
 ! nrot returns the number  of Jacobi rotations that were required.
 !
  integer :: i,ip,iq,j
- real ::  c,g,h,s,sm,t,tau,theta,tresh,b(NMAX),z(NMAX)
+ real :: c,g,h,s,sm,t,tau,theta,tresh,b(NMAX),z(NMAX)
  do 12, ip=1,n  !Initialize  to  the  identity  matrix.
     do 11, iq=1,n
        v(ip,iq)=0.
@@ -667,7 +667,6 @@ subroutine jacobi(a,n,np,d,v,nrot)
 !and  reinitialize z.
 23  enddo
 24 enddo
- return
 end subroutine jacobi
 
 end module analysis

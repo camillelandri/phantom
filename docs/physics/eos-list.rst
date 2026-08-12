@@ -11,7 +11,7 @@
    |           | where :math:`c_s^2 \equiv K` is a constant stored in the dump file header                                                |
    |           |                                                                                                                          |
    +-----------+--------------------------------------------------------------------------------------------------------------------------+
-   | 2         | **Adiabatic equation of state (code default)**                                                                           |
+   | 2         | **Ideal gas or polytropic equation of state (code default)**                                                             |
    |           |                                                                                                                          |
    |           | :math:`P = (\gamma - 1) \rho u`                                                                                          |
    |           |                                                                                                                          |
@@ -157,8 +157,6 @@
    |           | When using this equation of state bodies should be set up with uniform density equal, or close to the                    |
    |           | reference density :math:`\rho_0`, e.g. 2.7 g/cm^3 for basalt                                                             |
    |           |                                                                                                                          |
-   +-----------+--------------------------------------------------------------------------------------------------------------------------+
-   | 24        | **Tabulated EoS of Stamatellos et al. 2007 (includes opacities)**                                                        |
    |           |                                                                                                                          |
    |           | Tabulated equation of state with opacities from Lombardi et al. 2015. For use                                            |
    |           | with icooling = 9, the radiative cooling approximation (Young et al. 2024).                                              |
