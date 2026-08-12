@@ -21,7 +21,9 @@ module analysis
  use raytracer,  only: get_all_tau_single
  use ftorch, only : torch_model, torch_tensor, torch_kCPU, torch_delete, &
                     torch_tensor_from_array, torch_model_load, torch_model_forward
- use omp_lib, only : omp_get_max_threads, omp_get_thread_num, omp_set_num_threads
+ use omp_lib, only : omp_get_max_threads, omp_get_thread_num, omp_set_num_threads, omp_get_wtime
+ use hdf5
+
  implicit none
  character(len=20), parameter, public :: analysistype = 'mace'
  public :: do_analysis
@@ -92,7 +94,7 @@ contains
 
 subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  use part,       only: isdead_or_accreted, iorig, rhoh, nptmass, xyzmh_ptmass, iReff, iboundary, igas, iphase, iamtype, maxp
- use linklist,   only: set_linklist
+ use neighkdtree, only:build_tree
  use units,      only: utime,unit_density,udist
  use physcon,    only: atomic_mass_unit
  use eos,        only: get_temperature, ieos, gamma,gmw, init_eos
@@ -108,7 +110,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  type(torch_tensor), dimension(:), allocatable :: in_tensors, latent_tensors, latent_evolved_tensors, out_tensors
  real          :: dt_cgs, rho_cgs, numberdensity, T_gas, gammai, mui, AUV, xi
  real          :: column_density(npart), xyzh_copy(4,npart)
- real          :: max_radius, radius, time_count
+ real          :: max_radius, radius, time_count, tstart, tprocess, ttotal
  integer       :: i, j, k, i_radius, ierr, npart_copy = 0
  integer       :: iu=10,ios
  character(len=9) :: filename
@@ -117,6 +119,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  if (.not.done_init) then
     done_init = .true.
     print*, "Initialising MACE"
+
     ! read in model metadata and species labels
     call read_metadata(trim(model_file)//'/'//trim('meta.txt'), latent_size, dt_fract, epoch)
     allocate(saved_labels_i(size(saved_labels)))
@@ -178,30 +181,55 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     atol_arr = atol
     rtol_arr = rtol
 
-    print*, " - Setting abundances"
-    !$omp parallel do default(none) &
-    !$omp shared(npart,xyzh,abundances, abundance_label) &
-    !$omp private(i)
-    do i=1, npart
-       if (.not.isdead_or_accreted(xyzh(4,i))) then
-          call chem_init(abundances(:,i),abundance_label)
-       endif
-    enddo
+    ! initialize HDF5
+    print*, " - Initializing HDF5"
+    call h5open_f(hdferr)
+    if (hdferr /= 0) then
+       call fatal(analysistype, 'Failed to initialize HDF5')
+    endif
+
+    ! check if a file with abundances already exists, if so read it in and use it as initial abundances
+    inquire(file=trim(dumpfile)//'.h5', size=isize)
+    if (isize > 0) then
+         print*, "Found existing abundance file, reading in abundances"
+         call read_chem(npart, dumpfile)
+    else
+       print*, " - Setting abundances"
+       !$omp parallel do default(none) &
+       !$omp shared(npart,xyzh,abundance_label,abundances) &
+       !$omp private(i)
+       do i=1, npart
+          if (.not.isdead_or_accreted(xyzh(4,i))) then
+             call chem_init(abundances(:,i),abundance_label)
+          endif
+       enddo
+       call write_chem(npart, dumpfile)
+    endif
+
     call init_eos(ieos, ierr)
     if (ierr /= 0) call fatal(analysistype, "Failed to initialise EOS")
     print*, "MACE initialisation complete"
+
  else
+    ttotal = omp_get_wtime()
     dt_cgs = (time - tprev)*utime
     dt = dt_cgs / dt_max * dt_fract           ! scale dt for latent space evolution
-    print*, " - Not first step data, timestep = ",dt_cgs, "npart = ",npart, "nprev = ",nprev
+    print*, " - timestep = ",dt_cgs, "npart = ",npart, "nprev = ",nprev
     thread_count = omp_get_max_threads()
     print*, " - Running on ", thread_count, " threads"
-    call cpu_time(startTime)
 
     ! build tree and compute column density
+    print*, "Building tree..."
+    tstart = omp_get_wtime()
     npart_copy = npart
     xyzh_copy = xyzh(:,:npart)
     call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
+    tprocess = omp_get_wtime() - tstart
+    print*, "     - time taken = ", tprocess, " seconds"
+    time_count = tprocess
+
+    print*, "Calculating column density..."
+    tstart = omp_get_wtime()
     ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
     allocate(xyzmh_ptmass_copy(size(xyzmh_ptmass,1), size(xyzmh_ptmass,2)))
     xyzmh_ptmass_copy(:,:) = xyzmh_ptmass(:,:) !to avoid overwriting the original ptmass array in the column density calculation
@@ -218,11 +246,12 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
        endif
     enddo
     column_density = column_density + rhoh(xyzh(4,i_radius),particlemass)*unit_density * max_radius * udist
-    call cpu_time(stopTime)
-    print*, " - Column density calculation complete, time taken = ", (stopTime - startTime)/thread_count, " seconds"
-    time_count = (stopTime - startTime)/thread_count
-    call cpu_time(startTime)
+    tprocess = omp_get_wtime() - tstart
+    print*, "     - time taken = ", tprocess, " seconds"
+    time_count = time_count + tprocess
+
     print*, "building data arrays for MACE"
+    tstart = omp_get_wtime()
     allocate(in_data(npart,real_size))
     allocate(latent_abs(npart,latent_size))
     allocate(latent_abs_evolved(npart,latent_size))
@@ -278,12 +307,12 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
        endif
     enddo outer
     !$omp end parallel do
-    call cpu_time(stopTime)
-    print*, " - Array building done, time taken = ", (stopTime - startTime)/thread_count, " seconds"
-    time_count = time_count + (stopTime - startTime)/thread_count
+    tprocess = omp_get_wtime() - tstart
+    print*, "     - time taken = ", tprocess, " seconds"
+    time_count = time_count + tprocess
    
-    call cpu_time(startTime)
-    write(*,*), "Creating Torch tensors"
+    print*, "Creating Torch tensors"
+    tstart = omp_get_wtime()
     allocate(in_tensors(1))
     allocate(latent_tensors(1))
     allocate(latent_evolved_tensors(1))
@@ -292,13 +321,19 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     call torch_tensor_from_array(latent_tensors(1), latent_abs, torch_kCPU)
     call torch_tensor_from_array(latent_evolved_tensors(1), latent_abs_evolved, torch_kCPU)
     call torch_tensor_from_array(out_tensors(1), out_data, torch_kCPU)
+    tprocess = omp_get_wtime() - tstart
+    print*, "     - time taken = ", tprocess, " seconds"
+    time_count = time_count + tprocess
 
-    write(*,*), "Running encoder"
+    print*, "Running encoder"
+    tstart = omp_get_wtime()
     call torch_model_forward(encoder, in_tensors, latent_tensors)
-    call cpu_time(stopTime)
-    print*, " - Encoder run complete, time taken = ", (stopTime - startTime)/thread_count, " seconds"
-    time_count = time_count + (stopTime - startTime)/thread_count
-    call cpu_time(startTime)
+    tprocess = omp_get_wtime() - tstart
+    print*, "    - time taken = ", tprocess, " seconds"
+    time_count = time_count + tprocess
+
+    print*, "Evolving latent space"
+    tstart = omp_get_wtime()
     !$omp parallel do default(none) &
     !$omp shared(npart,mf,iopt,itol,itask,neq,rtol_arr,atol_arr,latent_size,iorig,latent_abs, latent_abs_evolved, dt) &
     !$omp private(i,y,t,tout,solver,istate,iwork,rwork)
@@ -320,20 +355,20 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
        !print*, "Particle ", iorig(i), " evolved in latent space, y=", y
     end do
     !$omp end parallel do
-    call cpu_time(stopTime)
-    print*, " - Latent space evolution complete, time taken = ", (stopTime - startTime)/thread_count, " seconds"
-    time_count = time_count + (stopTime - startTime)/thread_count
-    call cpu_time(startTime)
+    tprocess = omp_get_wtime() - tstart
+    print*, "     - time taken = ", tprocess, " seconds"
+    time_count = time_count + tprocess
    
     ! Decode
-    write(*,*), "Running decoder"
+    print*, "Running decoder"
+    tstart = omp_get_wtime()
     call torch_model_forward(decoder, latent_evolved_tensors, out_tensors)
-    call cpu_time(stopTime)
-    print*, " - Decoder run complete, time taken = ", (stopTime - startTime)/thread_count, " seconds"
-    time_count = time_count + (stopTime - startTime)/thread_count
-    call cpu_time(startTime)
-    write(*,*), "Unscaling output and updating abundances array"
-
+    tprocess = omp_get_wtime() - tstart
+    print*, "     - time taken = ", tprocess, " seconds"
+    time_count = time_count + tprocess
+    
+    print*, "Unscaling output and updating abundances array"
+    tstart = omp_get_wtime()
     !$omp parallel do default(none) &
     !$omp shared(npart,iorig,out_data,abundances,n_min, n_max,iphase) &
     !$omp private(i,j)
@@ -343,11 +378,11 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
           call unscale_and_unlog(out_data(i,j), n_min, n_max)
        end do
        abundances(:,i) = out_data(i,:)
-
     end do
-    call cpu_time(stopTime)
-    print *, 'Unscaling time, s : ',  (stopTime - startTime)/thread_count
-    time_count = time_count + (stopTime - startTime)/thread_count
+    tprocess = omp_get_wtime() - tstart
+    print *, '     - time taken = ', tprocess, ' seconds'
+    time_count = time_count + tprocess
+
     ! clean up tensors
     deallocate(in_tensors)
     deallocate(latent_tensors)
@@ -357,16 +392,24 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     deallocate(latent_abs)
     deallocate(latent_abs_evolved)
     deallocate(out_data)
-    print*, "done"
-    print*,"Total MACE time for this dump, s: ", time_count
    endif
 
- ! store current step data before moving on to next step
+ ! write and store current step data before moving on to next step
+ tstart = omp_get_wtime()
  call write_chem(npart, dumpfile, saved_labels, saved_labels_i)
+ tprocess = omp_get_wtime() - tstart
+ print*, "     - time taken to write abundances = ", tprocess, " seconds"
+ time_count = time_count + tprocess
  nprev = npart
  tprev = time
  iorig_old = iorig
  abundance_prev = abundances
+
+ print*, "done"
+ ttotal = omp_get_wtime() - ttotal
+ print*,"Total MACE time for this dump, s: ", time_count
+ print*,"Total time including io, s: ", ttotal
+
  end subroutine do_analysis
 
  subroutine get_xi(AUV, xi)
@@ -398,28 +441,115 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  
    end subroutine get_xi
 
- subroutine write_chem(npart, dumpfile, saved_labels, saved_labels_i)
-    integer, intent(in)          :: npart
-    character(len=*), intent(in) :: dumpfile
-    character(len=*), dimension(:), intent(in) :: saved_labels
-    integer, dimension(:), intent(in) :: saved_labels_i
-    character(len=256) :: header
-    integer :: iu, isize, i, k
-       write(*,*) " - Writing chemical abundances to file"
-       open(newunit=iu,file=dumpfile//'.comp',status='replace',action='write')
-       header = '# '
-       do k = 1, size(saved_labels)
-          header = trim(header) // trim(saved_labels(k)) // ', '
-       end do
-       write(iu, *) header
-       do i=1, npart
-          do k = 1, size(saved_labels)
-             write(iu, '(ES14.7,1x)', advance="no") abundances(saved_labels_i(k),i)
-          end do
-          write(iu,*) ! new line
-       enddo
-       close(iu)
-   end subroutine write_chem
+ subroutine write_chem(npart, dumpfile)
+      integer,          intent(in) :: npart
+      character(len=*), intent(in) :: dumpfile
+      integer                      :: hdferr
+      integer(hid_t) :: file_id, dspace_id, dset_id, group_id, type_id
+      integer(hsize_t) :: dims(2)
+      integer(hsize_t) :: dims_labels(1)
+      integer(size_t)  :: str_len
+
+      ! create HDF5 file
+      print "(1x,a)",'Writing to '//trim(dumpfile)//'.h5'
+      call h5fcreate_f(trim(dumpfile)//'.h5', H5F_ACC_TRUNC_F, file_id, hdferr)
+      if (hdferr /= 0) then
+         print*,'ERROR: Failed to create HDF5 file'
+         return
+      endif
+
+      ! create group for particle data
+      call h5gcreate_f(file_id, 'chemistry', group_id, hdferr)
+      ! create dataspace for particle datasets
+      dims(1) = krome_nmols
+      dims(2) = npart
+      call h5screate_simple_f(2, dims, dspace_id, hdferr)
+      ! create one 2D dataset for all species abundances:
+      call h5dcreate_f(group_id, 'abundances', H5T_NATIVE_DOUBLE, dspace_id, dset_id, hdferr)
+      call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, abundance(:,1:npart), dims, hdferr)
+      if (hdferr /= 0) then
+         print*,'ERROR: Failed to write dataset abundances'
+         return
+      endif
+      call h5dclose_f(dset_id, hdferr)
+
+      ! store species labels so abundances row i is always identifiable
+      dims_labels(1) = krome_nmols
+      call h5screate_simple_f(1, dims_labels, dspace_id, hdferr)
+      call h5tcopy_f(H5T_FORTRAN_S1, type_id, hdferr)
+      str_len = len(abundance_label(1))
+      call h5tset_size_f(type_id, str_len, hdferr)
+      call h5dcreate_f(group_id, 'species_labels', type_id, dspace_id, dset_id, hdferr)
+      call h5dwrite_f(dset_id, type_id, abundance_label, dims_labels, hdferr)
+
+      call h5dclose_f(dset_id, hdferr)
+      call h5tclose_f(type_id, hdferr)
+      call h5sclose_f(dspace_id, hdferr)
+      call h5gclose_f(group_id, hdferr)
+      call h5fclose_f(file_id, hdferr)
+ end subroutine write_chem
+
+ subroutine read_chem(npart, dumpfile)
+      integer,          intent(in) :: npart
+      character(len=*), intent(in) :: dumpfile
+      integer                      :: hdferr
+      integer :: i
+      integer(hid_t) :: file_id, dset_id, group_id, filespace_id, type_id
+      integer(hsize_t) :: max_dims(2), file_dims(2)
+      integer(hsize_t) :: max_dims_labels(1), file_dims_labels(1)
+      integer(size_t)  :: str_len
+      character(len=16) :: labels_file(krome_nmols)
+
+      ! open HDF5 file
+      print "(1x,a)",'Reading from '//trim(dumpfile)//'.h5'
+      call h5fopen_f(trim(dumpfile)//'.h5', H5F_ACC_RDONLY_F, file_id, hdferr)
+      if (hdferr /= 0) then
+         print*,'ERROR: Failed to open HDF5 file'
+         return
+      endif
+
+      ! open group for particle data
+      call h5gopen_f(file_id, 'chemistry', group_id, hdferr)
+
+      call h5dget_space_f(dset_id, filespace_id, hdferr)
+      call h5sget_simple_extent_dims_f(filespace_id, file_dims, max_dims, hdferr)
+      if (file_dims(1) /= krome_nmols .or. file_dims(2) /= npart) then
+         print*,'ERROR: abundances shape mismatch in HDF5 file'
+         return
+      endif
+
+      call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, abundance(:,1:npart), file_dims, hdferr)
+      call h5dclose_f(dset_id, hdferr)
+      call h5sclose_f(filespace_id, hdferr)
+
+      ! read and validate species labels to guarantee row-label mapping
+      call h5dopen_f(group_id, 'species_labels', dset_id, hdferr)
+      call h5dget_space_f(dset_id, filespace_id, hdferr)
+      call h5sget_simple_extent_dims_f(filespace_id, file_dims_labels, max_dims_labels, hdferr)
+      if (file_dims_labels(1) /= krome_nmols) then
+         call fatal(analysistype, 'species_labels length mismatch in HDF5 file')
+      endif
+
+      call h5tcopy_f(H5T_FORTRAN_S1, type_id, hdferr)
+      str_len = len(labels_file(1))
+      call h5tset_size_f(type_id, str_len, hdferr)
+      call h5dread_f(dset_id, type_id, labels_file, file_dims_labels, hdferr)
+
+      do i = 1, krome_nmols
+         if (trim(adjustl(labels_file(i))) /= trim(adjustl(abundance_label(i)))) then
+            print*,'ERROR: species_labels mismatch at index ', i
+            call fatal(analysistype, 'species_labels mismatch in HDF5 file')
+         endif
+      enddo
+
+      call h5dclose_f(dset_id, hdferr)
+      call h5sclose_f(filespace_id, hdferr)
+      call h5tclose_f(type_id, hdferr)
+      call h5gclose_f(group_id, hdferr)
+      call h5fclose_f(file_id, hdferr)
+ end subroutine read_chem
+
+
 
  subroutine ode(me, neq, t, y, ydot)
       ! Defines the ODE system dyi/dt = Ci + Aij*yj + Bijk*yi*yk
