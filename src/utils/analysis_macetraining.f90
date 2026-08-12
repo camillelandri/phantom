@@ -213,7 +213,7 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
          call krome_set_user_AuvAv(AuvAv)
 
          ! Run KROME to update abundances
-          if (j == iprev(i)) then
+          if (iprev(i) /= 0) then
             ! Use previous abundances if found in previous step
              abundance_part(:) = abundance_prev(:,iprev(i))
              Y = abundance_part*numberdensity
