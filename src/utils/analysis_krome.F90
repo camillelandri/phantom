@@ -137,7 +137,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
 #endif
     print*, "Calculating column density..."
     tstart = omp_get_wtime()
-   allocate(xyzmh_ptmass_copy(size(xyzmh_ptmass,1), size(xyzmh_ptmass,2)))
+    allocate(xyzmh_ptmass_copy(size(xyzmh_ptmass,1), size(xyzmh_ptmass,2)))
     xyzmh_ptmass_copy(:,:) = xyzmh_ptmass(:,:) !to avoid overwriting the original ptmass array in the column density calculation
     xyzmh_ptmass_copy(iReff,1) = 2.
     call get_all_tau(npart, nptmass, xyzmh_ptmass_copy, xyzh, one, 5, .false., column_density)

@@ -15,7 +15,8 @@ module analysis
 !
 ! :Runtime parameters: None
 !
-! :Dependencies: None
+! :Dependencies: eos, io, krome_main, krome_user, neighkdtree,
+!      part, physcon, raytracer, units
 !
  use krome_user, only: krome_nmols
  use part,       only: maxp
@@ -40,7 +41,7 @@ contains
 
 subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  use part,       only: isdead_or_accreted, iorig, rhoh, nptmass, xyzmh_ptmass, iReff, iboundary, igas, iamtype, maxp
- use linklist,   only: set_linklist
+ use neighkdtree,only:build_tree
  use units,      only: utime,unit_density,udist
  use physcon,    only: atomic_mass_unit
  use eos,        only: get_temperature, ieos, gamma,gmw, init_eos
@@ -56,6 +57,7 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
  integer,          intent(in) :: num,npart,iunit
  real,             intent(in) :: xyzh(:,:),vxyzu(:,:)
  real,             intent(in) :: particlemass,time
+ real, allocatable :: xyzmh_ptmass_copy(:,:)
  real, save    :: tprev = 0.
  integer, save :: nprev = 0
  real          :: dt_cgs, rho_cgs, numberdensity, T_gas, gammai, mui, AUV, xi
@@ -83,7 +85,7 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
 
     ! make directory to store individual particle chemistry files in dumpfile directory
     ! get path from dumpfile
-    dir = trim(dir)//'chem_output_raytest/'
+    dir = trim(dir)//'chem_trace/'
     print *, "Creating directory for chemistry output in ", dir
     inquire(file=dir, exist=ios)
     if (ios == 0) then
@@ -110,7 +112,7 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
     done_init = .true.
     print*, "initialising KROME"
     call krome_init()
-    print*, "Initialised KROME"
+    print*, "initialised KROME"
     abundance_label(:) = krome_get_names()
     allocate(abundance(krome_nmols,maxp))
     abundance = 0.
@@ -142,12 +144,9 @@ use krome_user, only: krome_idx_He,krome_idx_C,krome_idx_N,krome_idx_O,&
  
  else
     dt_cgs = (time - tprev)*utime
-    completed_iterations = 0
-    print*, dumpfile, ": not first step data, timestep = ",dt_cgs, "npart = ",npart, "nprev = ",nprev
-    xyzmh_ptmass(iReff,1) = 2.
     npart_copy = npart
-    xyzh_copy = xyzh(:,:npart)
-    call set_linklist(npart_copy,npart_copy,xyzh_copy,vxyzu)
+    xyzh_copy = xyzh(:,:npart) !to avoid overwriting the original xyzh array when building the tree
+    call build_tree(npart_copy,npart_copy,xyzh_copy,vxyzu)
     ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
     call get_all_tau_single(npart, xyzmh_ptmass(1:3,1), xyzmh_ptmass(iReff,1), xyzh, one, xyzmh_ptmass(iReff,1), 5, .false., column_density)
     max_radius = 0.0
