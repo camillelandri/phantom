@@ -85,7 +85,7 @@ end subroutine get_all_tau
  !  OUT: taus:           The array of optical depths to each SPH particle
  !+
  !---------------------------------------------------------------------------------
-subroutine get_all_tau_single(npart, primary, Rstar, xyzh, kappa, Rinject, order, outwards, outwards, tau)
+subroutine get_all_tau_single(npart, primary, Rstar, xyzh, kappa, Rinject, order, outwards, tau)
  use part, only:isdead_or_accreted
  integer, intent(in) :: npart,order
  real, intent(in)    :: primary(3), Rstar, xyzh(:,:), kappa(:), Rinject
@@ -166,7 +166,7 @@ end subroutine get_all_tau_single
  !  OUT: tau:            The array of optical depths for each SPH particle
  !+
  !--------------------------------------------------------------------------
-subroutine get_all_tau_companion(npart, primary, Rstar, xyzh, kappa, Rinject, companion, Rcomp, order, outwards, outwards, tau)
+subroutine get_all_tau_companion(npart, primary, Rstar, xyzh, kappa, Rinject, companion, Rcomp, order, outwards, tau)
  use part, only:isdead_or_accreted
  integer, intent(in) :: npart, order
  real, intent(in)    :: primary(3), companion(3), kappa(:), Rstar, Rinject, xyzh(:,:), Rcomp
