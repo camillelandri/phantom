@@ -213,6 +213,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  else
     ttotal = omp_get_wtime()
     dt_cgs = (time - tprev)*utime
+    iprev = 0
     dt = dt_cgs / dt_max * dt_fract           ! scale dt for latent space evolution
     print*, " - timestep = ",dt_cgs, "npart = ",npart, "nprev = ",nprev
     thread_count = omp_get_max_threads()
@@ -265,21 +266,13 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     outer: do i=1,npart
     ! Loop over particles to build input arrays for MACE.
        if (.not.isdead_or_accreted(xyzh(4,i))) then
-         if (i <= nprev) then
-             if (iorig(i) == iorig_old(i)) then
-                iprev(i) = i
-                j = i
+          inner: do j=1,nprev
+             if (iorig(i) == iorig_old(j)) then
+                iprev(i) = j
+                exit inner
              endif
-          endif
-          if (iprev(i) == 0) then
-             inner: do k=1,nprev
-                if (iorig(i) == iorig_old(k)) then
-                   iprev(i) = k
-                   j = k
-                   exit inner
-                endif
-             enddo inner
-          endif
+          enddo inner
+          
           ! Thermodynamic quantities
           rho_cgs = rhoh(xyzh(4,i),particlemass)*unit_density
           gammai = gamma
