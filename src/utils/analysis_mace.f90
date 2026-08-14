@@ -42,8 +42,7 @@ module analysis
  integer, allocatable :: abundance_label_i(:)
 
  real, allocatable, target :: in_data(:,:), latent_abs(:, :), latent_abs_evolved(:, :), out_data(:, :)
- integer(8), allocatable :: iorig_old(:)
- integer, allocatable :: iprev(:)
+ integer(8), allocatable :: iorig_old(:), iprev(:), evolve_idx(:)
  logical :: done_init = .false.
  real :: AuvAv = 4.65, albedo = 0.5
 
@@ -110,8 +109,8 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
  type(torch_tensor), dimension(:), allocatable :: in_tensors, latent_tensors, latent_evolved_tensors, out_tensors
  real          :: dt_cgs, rho_cgs, numberdensity, T_gas, gammai, mui, AUV, xi
  real          :: column_density(npart), xyzh_copy(4,npart)
- real          :: max_radius, radius, time_count, tstart, tprocess, ttotal
- integer       :: i, j, k, i_radius, ierr, npart_copy = 0
+ real          :: max_radius, radius, time_count=0., tstart, tprocess, ttotal
+ integer       :: i, j, k, i_radius, ierr, npart_copy = 0, nevolve, m, nboundary
  integer       :: iu=10,ios
  character(len=9) :: filename
  integer :: isize, hdferr
@@ -159,7 +158,6 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     allocate(iorig_old(maxp))
     iorig_old = 0
     allocate(iprev(maxp))
-    iprev = 0
 
     ! Allocate ODE solver arrays
     allocate(atol_arr(latent_size))
@@ -219,60 +217,68 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
     thread_count = omp_get_max_threads()
     print*, " - Running on ", thread_count, " threads"
 
-    ! build tree and compute column density
-    print*, "Building tree..."
+
+    ! Find how many particles are new (and so need to be initialised) and how many need to be evolved
+    ! remove boundary particles and dead/accreted particles
+    print*, "Sorting between new and evolved particles..."
+    nboundary = 2460
     tstart = omp_get_wtime()
-    npart_copy = npart
-    xyzh_copy = xyzh(:,:npart)
-    call build_tree(npart_copy,npart_copy,xyzh_copy,vxyzu)
+    call sort_particles(npart, iorig, xyzh, nevolve, evolve_idx, iprev, iorig_old, nprev, nboundary)
     tprocess = omp_get_wtime() - tstart
     print*, "     - time taken = ", tprocess, " seconds"
-    time_count = tprocess
 
-    print*, "Calculating column density..."
-    tstart = omp_get_wtime()
-    ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
-    allocate(xyzmh_ptmass_copy(size(xyzmh_ptmass,1), size(xyzmh_ptmass,2)))
-    xyzmh_ptmass_copy(:,:) = xyzmh_ptmass(:,:) !to avoid overwriting the original ptmass array in the column density calculation
-    xyzmh_ptmass_copy(iReff,1) = 2.
-    call get_all_tau_single(npart, xyzmh_ptmass(1:3,1), xyzmh_ptmass(iReff,1), xyzh, one, xyzmh_ptmass(iReff,1), 5, .false., column_density)
-    max_radius = 0.0
-    do i = 1, npart
-       if (.not.isdead_or_accreted(xyzh(4, i))) then
-          radius = sqrt(xyzh(1, i)**2 + xyzh(2, i)**2 + xyzh(3, i)**2)
-          if (radius > max_radius) then
-             max_radius = radius
-             i_radius = i
-          endif
-       endif
-    enddo
-    column_density = column_density + rhoh(xyzh(4,i_radius),particlemass)*unit_density * max_radius * udist
-    tprocess = omp_get_wtime() - tstart
-    print*, "     - time taken = ", tprocess, " seconds"
-    time_count = time_count + tprocess
+    if (nevolve == 0) then
+       print*, "No particles to evolve"
+    else
+       print*, "Number of particles to evolve: ", nevolve
 
-    print*, "building data arrays for MACE"
-    tstart = omp_get_wtime()
-    allocate(in_data(npart,real_size))
-    allocate(latent_abs(npart,latent_size))
-    allocate(latent_abs_evolved(npart,latent_size))
-    allocate(out_data(npart,abs_size))
+       ! build tree and compute column density
+       print*, "Building tree..."
+       tstart = omp_get_wtime()
+       npart_copy = npart
+       xyzh_copy = xyzh(:,:npart)
+       call build_tree(npart_copy,npart_copy,xyzh_copy,vxyzu)
+       tprocess = omp_get_wtime() - tstart
+       print*, "     - time taken = ", tprocess, " seconds"
+       time_count = tprocess
 
-    !$omp parallel do default(none) &
-    !$omp shared(npart,xyzh,vxyzu,dt_cgs,nprev,iorig,iorig_old,iprev,abundances,abundance_label,abundance_prev) &
-    !$omp shared(particlemass,unit_density,ieos,gamma,gmw,column_density,albedo,AuvAv,in_data) &
-    !$omp shared(rho_min, rho_max, T_min, T_max, delta_min, delta_max, Av_min, Av_max, n_min, n_max) &
-    !$omp private(i,j,k,rho_cgs,numberdensity,T_gas,gammai,mui,AUV,xi, thread,radius)
-    outer: do i=1,npart
-    ! Loop over particles to build input arrays for MACE.
-       if (.not.isdead_or_accreted(xyzh(4,i))) then
-          inner: do j=1,nprev
-             if (iorig(i) == iorig_old(j)) then
-                iprev(i) = j
-                exit inner
-             endif
-          enddo inner
-          
+       print*, "Calculating column density..."
+       tstart = omp_get_wtime()
+       ! temporary fix to get column density without companion (buggy when particle is aligned with the two stars, will need proper fix in get_all_tau_companion)
+       allocate(xyzmh_ptmass_copy(size(xyzmh_ptmass,1), size(xyzmh_ptmass,2)))
+       xyzmh_ptmass_copy(:,:) = xyzmh_ptmass(:,:) !to avoid overwriting the original ptmass array in the column density calculation
+       xyzmh_ptmass_copy(iReff,1) = 2.
+       call get_all_tau_single(npart, xyzmh_ptmass(1:3,1), xyzmh_ptmass(iReff,1), xyzh, one, xyzmh_ptmass(iReff,1), 5, .false., column_density)
+       max_radius = 0.0
+       do i = 1, npart
+          if (.not.isdead_or_accreted(xyzh(4, i))) then
+             radius = sqrt(xyzh(1, i)**2 + xyzh(2, i)**2 + xyzh(3, i)**2)
+             if (radius > max_radius) then
+                max_radius = radius
+                i_radius = i
+              endif
+           endif
+        enddo
+       column_density = column_density + rhoh(xyzh(4,i_radius),particlemass)*unit_density * max_radius * udist
+       tprocess = omp_get_wtime() - tstart
+       print*, "     - time taken = ", tprocess, " seconds"
+       time_count = time_count + tprocess
+
+       print*, "building data arrays for MACE"
+       tstart = omp_get_wtime()
+       allocate(in_data(nevolve,real_size))
+       allocate(latent_abs(nevolve,latent_size))
+       allocate(latent_abs_evolved(nevolve,latent_size))
+       allocate(out_data(nevolve,abs_size))
+
+       !$omp parallel do default(none) &
+       !$omp shared(nevolve,xyzh,vxyzu,dt_cgs,nprev,iorig,iorig_old,iprev,abundances,abundance_label,abundance_prev) &
+       !$omp shared(particlemass,unit_density,ieos,gamma,gmw,column_density,albedo,AuvAv,in_data, evolve_idx) &
+       !$omp shared(rho_min, rho_max, T_min, T_max, delta_min, delta_max, Av_min, Av_max, n_min, n_max) &
+       !$omp private(m,i,j,k,rho_cgs,numberdensity,T_gas,gammai,mui,AUV,xi,radius)
+       outer: do m=1,nevolve
+       ! Loop over particles to build input arrays for MACE
+          i = evolve_idx(m)
           ! Thermodynamic quantities
           rho_cgs = rhoh(xyzh(4,i),particlemass)*unit_density
           gammai = gamma
@@ -284,115 +290,109 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
           ! Radiation quantities
           AUV = AuvAv * column_density(i) / (mui * atomic_mass_unit) / 1.87e21
           call get_xi(AUV, xi)
-          in_data(i,1:4) = [numberdensity, T_gas, xi, AUV]
-         if (iorig(i) == 5001) then
-             print*, " - Particle ", iorig(i), " has input data ", in_data(i,1:4)
-          end if
-          if (iprev(i) /= 0) then
-             thread = omp_get_thread_num()
-             ! if particle existed in previous dump, get previous abundances
-             in_data(i,5:real_size) = abundance_prev(:,iprev(i))
-          else
-             !print*, "Particle ", iorig(i), " not found in previous step, initializing abundances"
-             call chem_init(abundances(:,i),abundance_label)
-             in_data(i,5:real_size) = abundances(:,i)
-          endif  
+          in_data(m,5:real_size) = abundance_prev(:,iprev(i))
+          in_data(m,1:4) = [numberdensity, T_gas, xi, AUV]
           ! Scale input data
-          call log_and_scale(in_data(i,1), rho_min, rho_max) ! density
-          call log_and_scale(in_data(i,2), T_min, T_max)     ! temperature
-          call log_and_scale(in_data(i,3), delta_min, delta_max) ! delta
-          call log_and_scale(in_data(i,4), Av_min, Av_max)   ! Av
+          call log_and_scale(in_data(m,1), rho_min, rho_max) ! density
+          call log_and_scale(in_data(m,2), T_min, T_max)     ! temperature
+          call log_and_scale(in_data(m,3), delta_min, delta_max) ! delta
+          call log_and_scale(in_data(m,4), Av_min, Av_max)   ! Av
           do k = 5, real_size
-             call log_and_scale(in_data(i,k), n_min, n_max) ! abundances
-          enddo
-       endif
-    enddo outer
-    !$omp end parallel do
-    tprocess = omp_get_wtime() - tstart
-    print*, "     - time taken = ", tprocess, " seconds"
-    time_count = time_count + tprocess
-   
-    print*, "Creating Torch tensors"
-    tstart = omp_get_wtime()
-    allocate(in_tensors(1))
-    allocate(latent_tensors(1))
-    allocate(latent_evolved_tensors(1))
-    allocate(out_tensors(1))
-    call torch_tensor_from_array(in_tensors(1), in_data, torch_kCPU)
-    call torch_tensor_from_array(latent_tensors(1), latent_abs, torch_kCPU)
-    call torch_tensor_from_array(latent_evolved_tensors(1), latent_abs_evolved, torch_kCPU)
-    call torch_tensor_from_array(out_tensors(1), out_data, torch_kCPU)
-    tprocess = omp_get_wtime() - tstart
-    print*, "     - time taken = ", tprocess, " seconds"
-    time_count = time_count + tprocess
+             call log_and_scale(in_data(m,k), n_min, n_max) ! abundances
+            enddo
+         enddo outer
+        !$omp end parallel do
+       tprocess = omp_get_wtime() - tstart
+       print*, "     - time taken = ", tprocess, " seconds"
+       time_count = time_count + tprocess
 
-    print*, "Running encoder"
-    tstart = omp_get_wtime()
-    call torch_model_forward(encoder, in_tensors, latent_tensors)
-    tprocess = omp_get_wtime() - tstart
-    print*, "    - time taken = ", tprocess, " seconds"
-    time_count = time_count + tprocess
+       print*, "Creating Torch tensors"
+       tstart = omp_get_wtime()
+       allocate(in_tensors(1))
+       allocate(latent_tensors(1))
+       allocate(latent_evolved_tensors(1))
+       allocate(out_tensors(1))
+       call torch_tensor_from_array(in_tensors(1), in_data, torch_kCPU)
+       call torch_tensor_from_array(latent_tensors(1), latent_abs, torch_kCPU)
+       call torch_tensor_from_array(latent_evolved_tensors(1), latent_abs_evolved, torch_kCPU)
+       call torch_tensor_from_array(out_tensors(1), out_data, torch_kCPU)
+       tprocess = omp_get_wtime() - tstart
+       print*, "     - time taken = ", tprocess, " seconds"
+       time_count = time_count + tprocess 
 
-    print*, "Evolving latent space"
-    tstart = omp_get_wtime()
-    !$omp parallel do default(none) &
-    !$omp shared(npart,mf,iopt,itol,itask,neq,rtol_arr,atol_arr,latent_size,iorig,latent_abs, latent_abs_evolved, dt) &
-    !$omp private(i,y,t,tout,solver,istate,iwork,rwork)
-    do i=1,npart
-       ! Evolve latent space
-       ! Initialise ODE solver variables
-       istate = 1
-       y      = latent_abs(i,:) ! initial value of the dependent variable.
-       t      = 0.0d0 ! initial value of the independent variable.
-       tout   = dt ! first point where output is desired (/= t).
-       call solver%initialize(f=ode)
-       ! Call the ODE solver to evolve latent_abs
-       call solver%solve(neq,y,t,tout,itol,rtol_arr,atol_arr,itask,istate,&
-                         iopt,rwork,lrw,iwork,liw,mf)
-       if (.not. istate == 2) then
-          write(*,*) "Error in ODE solver for particle ", iorig(i), " istate = ", istate
-       endif
-       latent_abs_evolved(i,:) = y
-       !print*, "Particle ", iorig(i), " evolved in latent space, y=", y
-    end do
-    !$omp end parallel do
-    tprocess = omp_get_wtime() - tstart
-    print*, "     - time taken = ", tprocess, " seconds"
-    time_count = time_count + tprocess
-   
-    ! Decode
-    print*, "Running decoder"
-    tstart = omp_get_wtime()
-    call torch_model_forward(decoder, latent_evolved_tensors, out_tensors)
-    tprocess = omp_get_wtime() - tstart
-    print*, "     - time taken = ", tprocess, " seconds"
-    time_count = time_count + tprocess
-    
-    print*, "Unscaling output and updating abundances array"
-    tstart = omp_get_wtime()
-    !$omp parallel do default(none) &
-    !$omp shared(npart,iorig,out_data,abundances,n_min, n_max,iphase) &
-    !$omp private(i,j)
-    do i=1,npart
-       ! Unscale abundances
-       do j = 1, abs_size
-          call unscale_and_unlog(out_data(i,j), n_min, n_max)
+       print*, "Running encoder"
+       tstart = omp_get_wtime()
+       call torch_model_forward(encoder, in_tensors, latent_tensors)
+       tprocess = omp_get_wtime() - tstart
+       print*, "    - time taken = ", tprocess, " seconds"
+       time_count = time_count + tprocess
+
+       print*, "Evolving latent space"
+       tstart = omp_get_wtime()
+       !$omp parallel do default(none) &
+       !$omp shared(nevolve,evolve_idx,mf,iopt,itol,itask,neq,rtol_arr,atol_arr,latent_size,iorig,latent_abs, latent_abs_evolved, dt) &
+       !$omp private(i,m,y,t,tout,solver,istate,iwork,rwork)
+       do m=1,nevolve
+          ! Evolve latent space
+          ! Initialise ODE solver variables
+          istate = 1
+          y      = latent_abs(m,:) ! initial value of the dependent variable.
+          t      = 0.0d0 ! initial value of the independent variable.
+          tout   = dt ! first point where output is desired (/= t).
+          call solver%initialize(f=ode)
+          ! Call the ODE solver to evolve latent_abs
+          call solver%solve(neq,y,t,tout,itol,rtol_arr,atol_arr,itask,istate,&
+                            iopt,rwork,lrw,iwork,liw,mf)
+          if (.not. istate == 2) then
+             i = evolve_idx(m)
+             write(*,*) "Error in ODE solver for particle ", iorig(i), " istate = ", istate
+          endif
+          latent_abs_evolved(m,:) = y
+          !print*, "Particle ", iorig(m), " evolved in latent space, y=", y
        end do
-       abundances(:,i) = out_data(i,:)
-    end do
-    tprocess = omp_get_wtime() - tstart
-    print *, '     - time taken = ', tprocess, ' seconds'
-    time_count = time_count + tprocess
+       !$omp end parallel do
+       tprocess = omp_get_wtime() - tstart
+       print*, "     - time taken = ", tprocess, " seconds"
+       time_count = time_count + tprocess
+      
+       ! Decode
+       print*, "Running decoder"
+       tstart = omp_get_wtime()
+       call torch_model_forward(decoder, latent_evolved_tensors, out_tensors)
+       tprocess = omp_get_wtime() - tstart
+       print*, "     - time taken = ", tprocess, " seconds"
+       time_count = time_count + tprocess
+    
+       print*, "Unscaling output and updating abundances array"
+       tstart = omp_get_wtime()
+       !$omp parallel do default(none) &
+       !$omp shared(nevolve,evolve_idx,iorig,out_data,abundances,n_min, n_max,iphase) &
+       !$omp private(i,j)
+       do m=1,nevolve
+          ! Unscale abundances
+          do j = 1, abs_size
+             call unscale_and_unlog(out_data(m,j), n_min, n_max)
+          end do
+          i = evolve_idx(m)
+          ! if particle existed in previous dump, update abundances with evolved values
+          abundances(:,i) = out_data(m,:)
+       end do
+       tprocess = omp_get_wtime() - tstart
+       print *, '     - time taken = ', tprocess, ' seconds'
+       time_count = time_count + tprocess
 
-    ! clean up tensors
-    deallocate(in_tensors)
-    deallocate(latent_tensors)
-    deallocate(latent_evolved_tensors)
-    deallocate(out_tensors)
-    deallocate(in_data)
-    deallocate(latent_abs)
-    deallocate(latent_abs_evolved)
-    deallocate(out_data)
+       ! clean up tensors
+       deallocate(in_tensors)
+       deallocate(latent_tensors)
+       deallocate(latent_evolved_tensors)
+       deallocate(out_tensors)
+       deallocate(in_data)
+       deallocate(latent_abs)
+       deallocate(latent_abs_evolved)
+       deallocate(out_data)
+       deallocate(evolve_idx)
+       deallocate(xyzmh_ptmass_copy)
+      endif
    endif
 
  ! write and store current step data before moving on to next step
@@ -413,6 +413,94 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
 
  end subroutine do_analysis
 
+ subroutine sort_particles(npart, iorig, xyzh, nevolve, evolve_idx, iprev, iorig_old, nprev, nboundary)
+    use part,       only: isdead_or_accreted
+    integer, intent(in) :: nboundary, npart
+    integer(8), intent(in) :: iorig(:),iorig_old(:)
+
+    real, intent(in) :: xyzh(4,npart)
+    integer, intent(out) :: nevolve
+    integer(8), allocatable, intent(out) :: evolve_idx(:)
+    integer(8), intent(inout) :: iprev(:)
+    integer, intent(in) :: nprev
+    integer :: local_count, n_threads, thread_id, i, j
+    integer, allocatable :: thread_counts(:), thread_offsets(:), chunk_pos(:)
+
+    ! this function cuts the particles in chunks, sorts between new and previously existing particles, 
+    ! initialises new particles, and returns the indices of the particles to be evolved in evolve_idx
+
+    n_threads = omp_get_max_threads()
+    allocate(thread_counts(0:n_threads-1), thread_offsets(0:n_threads-1), chunk_pos(0:n_threads-1))
+    thread_counts = 0
+   
+    ! sorting on particle chunks
+    !$omp parallel default(none) &
+    !$omp shared(npart,nprev,nboundary,iorig,iorig_old,xyzh,iprev,abundances,abundance_label,thread_counts) &
+    !$omp private(thread_id,i,j,local_count)
+    thread_id = omp_get_thread_num()
+    local_count = 0
+
+    !$omp do schedule(static)
+    do i = 1, npart
+       iprev(i) = 0
+       if (iorig(i) > nboundary .and. .not. isdead_or_accreted(xyzh(4,i))) then
+            if (i <= nprev .and. iorig(i) == iorig_old(i) .and. iorig(i) > 0 .and. iorig_old(i) > 0) then
+               ! if particle index is the same as in the previous dump, (and the particle existed in the previous dump),
+               ! then it is the same particle and we can just use the same index
+               iprev(i) = i
+            else
+               ! find previous index of particle i in the previous dump, stays 0 if not found
+               do j = 1, nprev
+                  if (iorig(i) == iorig_old(j)) then
+                     iprev(i) = j
+                     exit
+                  endif
+               enddo
+            endif
+
+            if (iprev(i) > 0) then
+               local_count = local_count + 1
+             else
+               call chem_init(abundances(:,i),abundance_label)
+            endif
+         endif
+     enddo
+    !$omp end do
+    thread_counts(thread_id) = local_count
+    !$omp end parallel
+
+    ! Piece together the chunks sizes to get the total size of the evolve_idx array
+    thread_offsets(0) = 0
+    do thread_id = 1, n_threads-1
+       thread_offsets(thread_id) = thread_offsets(thread_id-1) + thread_counts(thread_id-1)
+     enddo
+   nevolve = thread_offsets(n_threads-1) + thread_counts(n_threads-1)
+
+   ! fill evolve_idx array with the indices of the particles to be evolved by stitching together the chunks from each thread
+   if (nevolve > 0) then
+      allocate(evolve_idx(nevolve))
+      chunk_pos = thread_offsets
+
+      !$omp parallel default(none) &
+      !$omp shared(npart,nboundary,iorig,xyzh,iprev,evolve_idx,chunk_pos) &
+      !$omp private(thread_id,i)
+       thread_id = omp_get_thread_num()
+      
+       !$omp do schedule(static)
+       do i = 1, npart
+           if (iorig(i) > nboundary .and. .not. isdead_or_accreted(xyzh(4,i)) .and. iprev(i) > 0) then
+            ! if particle existed in previous dump, add its index to the evolve_idx array
+               chunk_pos(thread_id) = chunk_pos(thread_id) + 1
+               evolve_idx(chunk_pos(thread_id)) = i
+            endif
+         enddo
+      !$omp end do
+      !$omp end parallel
+   end if
+
+
+
+ end subroutine sort_particles
  subroutine get_xi(AUV, xi)
    use physcon, only: pi
    real, intent(in) :: AUV
@@ -441,6 +529,55 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
    xi = (pi/4.0)*xi
  
    end subroutine get_xi
+
+ subroutine ode(me, neq, t, y, ydot)
+      ! Defines the ODE system dyi/dt = Ci + Aij*yj + Bijk*yi*yk
+      class(dvode_t),intent(inout) :: me
+      integer :: neq
+      real :: t
+      real :: y(neq)
+      real :: ydot(neq)
+      integer :: i, j, k
+
+      do j = 1, neq
+         ydot(j) = C(j)
+         do i = 1, neq
+               ydot(j) = ydot(j) + A(j, i) * y(i)
+         end do
+         do i = 1, neq
+               do k = 1, neq
+                  ydot(j) = ydot(j) + B(j, i, k) * y(i) * y(k)
+               end do
+         end do
+      end do
+   end subroutine ode
+
+ subroutine log_and_scale (x, xmin, xmax)
+      ! scale parameters
+      ! First clip to min
+      ! log transform then normalise
+      ! xmin and xmax are log10 of min and max values for parameter
+
+      real, intent(inout) :: x
+      real, intent(in) :: xmin, xmax
+      ! clip to min
+      if (x < 10.0d0**xmin) then
+         x = 10.0d0**xmin
+      end if
+      x = log10(x)
+      x = (x - xmin) / ABS(xmax - xmin)
+   end subroutine log_and_scale
+
+
+ subroutine unscale_and_unlog (x, xmin, xmax)
+      ! unscale parameters 
+      ! denormalise then exp10 transform
+      ! xmin and xmax are log10 of min and max values for parameter
+      real, intent(inout) :: x
+      real, intent(in) :: xmin, xmax
+      x = x * ABS(xmax - xmin) + xmin
+      x = 10.0d0**x
+   end subroutine unscale_and_unlog
 
  subroutine write_chem(npart, dumpfile)
       integer,          intent(in) :: npart
@@ -488,7 +625,7 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       call h5sclose_f(dspace_id, hdferr)
       call h5gclose_f(group_id, hdferr)
       call h5fclose_f(file_id, hdferr)
- end subroutine write_chem
+  end subroutine write_chem
 
  subroutine read_chem(npart, dumpfile)
       integer,          intent(in) :: npart
@@ -550,105 +687,11 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       call h5tclose_f(type_id, hdferr)
       call h5gclose_f(group_id, hdferr)
       call h5fclose_f(file_id, hdferr)
- end subroutine read_chem
+  end subroutine read_chem
 
 
 
- subroutine ode(me, neq, t, y, ydot)
-      ! Defines the ODE system dyi/dt = Ci + Aij*yj + Bijk*yi*yk
-      class(dvode_t),intent(inout) :: me
-      integer :: neq
-      real :: t
-      real :: y(neq)
-      real :: ydot(neq)
-      integer :: i, j, k
 
-      do j = 1, neq
-         ydot(j) = C(j)
-         do i = 1, neq
-               ydot(j) = ydot(j) + A(j, i) * y(i)
-         end do
-         do i = 1, neq
-               do k = 1, neq
-                  ydot(j) = ydot(j) + B(j, i, k) * y(i) * y(k)
-               end do
-         end do
-      end do
-   end subroutine ode
-
- subroutine read_ode_params(model_file, epoch, atol, rtol)
-      ! Subroutine to read ODE parameters from files
-      implicit none
-      character(len=*), intent(in), optional :: model_file, epoch
-      real, intent(out) :: atol, rtol
-      integer :: i, j, k
-
-      ! Load ODE parameters from file
-      print*, " - Reading ODE parameters from " // trim(trim(adjustl(epoch)) //'_ODE_params.txt')
-      open(unit=10, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_params.txt'), status='old')
-      read(10, *) label, atol
-      read(10, *) label, rtol
-      close(10)
-      write(*,*) "      > atol =", atol
-      write(*,*) "      > rtol =", rtol
-
-      ! Read C (vector)
-      print*, " - Reading Coefficient C from " // trim(trim(adjustl(epoch)) //'_ODE_C.txt')
-      open(unit=11, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_C.txt'), status='old')
-      do i = 1, latent_size
-         read(11, *) C(i)
-      end do
-      close(11)
-
-      ! Read A (matrix)
-      print*, " - Reading Coefficient A from " // trim(trim(adjustl(epoch)) //'_ODE_A.txt')
-      open(unit=12, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_A.txt'), status='old')
-      do i = 1, latent_size
-         do j = 1, latent_size
-               read(12, *) A(i, j)
-         end do
-      end do
-      close(12)
-
-      ! Read B (tensor)
-      print*, " - Reading Coefficient B from " // trim(trim(adjustl(epoch)) //'_ODE_B.txt')
-      open(unit=13, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_B.txt'), status='old')
-      do i = 1, latent_size
-         do j = 1, latent_size
-               do k = 1, latent_size
-                  read(13, *) B(i, j, k)
-               end do
-         end do
-      end do
-      close(13)
-   end subroutine read_ode_params
-
- subroutine log_and_scale (x, xmin, xmax)
-      ! scale parameters
-      ! First clip to min
-      ! log transform then normalise
-      ! xmin and xmax are log10 of min and max values for parameter
-
-      real, intent(inout) :: x
-      real, intent(in) :: xmin, xmax
-      ! clip to min
-      if (x < 10.0d0**xmin) then
-         x = 10.0d0**xmin
-      end if
-      x = log10(x)
-      x = (x - xmin) / ABS(xmax - xmin)
-   end subroutine log_and_scale
-
-
- subroutine unscale_and_unlog (x, xmin, xmax)
-      ! unscale parameters 
-      ! denormalise then exp10 transform
-      ! xmin and xmax are log10 of min and max values for parameter
-      real, intent(inout) :: x
-      real, intent(in) :: xmin, xmax
-      x = x * ABS(xmax - xmin) + xmin
-      x = 10.0d0**x
-   end subroutine unscale_and_unlog
 
  subroutine read_minmax(filename, filesize, minmax)
       ! Subroutine to read minmax values from a file
@@ -740,6 +783,53 @@ subroutine do_analysis(dumpfile,num,xyzh,vxyzu,particlemass,npart,time,iunit)
       end do
       close(unit_num)
    end subroutine read_metadata
+
+ subroutine read_ode_params(model_file, epoch, atol, rtol)
+      ! Subroutine to read ODE parameters from files
+      implicit none
+      character(len=*), intent(in), optional :: model_file, epoch
+      real, intent(out) :: atol, rtol
+      integer :: i, j, k
+
+      ! Load ODE parameters from file
+      print*, " - Reading ODE parameters from " // trim(trim(adjustl(epoch)) //'_ODE_params.txt')
+      open(unit=10, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_params.txt'), status='old')
+      read(10, *) label, atol
+      read(10, *) label, rtol
+      close(10)
+      write(*,*) "      > atol =", atol
+      write(*,*) "      > rtol =", rtol
+
+      ! Read C (vector)
+      print*, " - Reading Coefficient C from " // trim(trim(adjustl(epoch)) //'_ODE_C.txt')
+      open(unit=11, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_C.txt'), status='old')
+      do i = 1, latent_size
+         read(11, *) C(i)
+      end do
+      close(11)
+
+      ! Read A (matrix)
+      print*, " - Reading Coefficient A from " // trim(trim(adjustl(epoch)) //'_ODE_A.txt')
+      open(unit=12, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_A.txt'), status='old')
+      do i = 1, latent_size
+         do j = 1, latent_size
+               read(12, *) A(i, j)
+         end do
+      end do
+      close(12)
+
+      ! Read B (tensor)
+      print*, " - Reading Coefficient B from " // trim(trim(adjustl(epoch)) //'_ODE_B.txt')
+      open(unit=13, file=trim(model_file)//'/'//trim(trim(adjustl(epoch))//'_ODE_B.txt'), status='old')
+      do i = 1, latent_size
+         do j = 1, latent_size
+               do k = 1, latent_size
+                  read(13, *) B(i, j, k)
+               end do
+         end do
+      end do
+      close(13)
+   end subroutine read_ode_params
 
  subroutine chem_init(abundances, abundance_label)
     ! Subroutine to initialise chemical abundance
