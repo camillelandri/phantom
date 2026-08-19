@@ -914,6 +914,16 @@ ifeq ($(SETUP), radwind)
     KNOWN_SETUP=yes
 endif
 
+ifeq ($(SETUP), windchem)
+#   wind setup with chemistry post-processing
+    SETUPFILE= setup_wind.f90
+    ANALYSIS= analysis_mace.f90 analysis_krome.F90 analysis_macetraining.f90
+    SINK_RADIATION=yes
+    DUST_NUCLEATION=yes
+    INJECT_PARTICLES=yes
+    KNOWN_SETUP=yes
+endif
+
 ifeq ($(SETUP), test)
 #   default setup for tests
     PERIODIC=yes

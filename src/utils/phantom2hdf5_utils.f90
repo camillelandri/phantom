@@ -23,7 +23,8 @@ module phantom2hdf5_utils
  use hdf5
  implicit none
 
- public :: convert_dump_to_hdf5
+ public :: convert_dump_to_hdf5, write_header_to_hdf5,write_array_to_hdf5,write_scalar_to_hdf5, &
+           write_2Darray_to_hdf5,write_to_hdf5
 
  private
 

@@ -882,6 +882,12 @@ OBJA= leastsquares.o solvelinearsystem.o prompting.o \
       setup_params.o options.o utils_getneighbours.o utils_omp.o \
       utils_disc.o set_dust.o utils_orbits.o set_binary.o ${OBJAN} phantomanalysis.o
 
+ifeq ($(MACE), yes)
+  OBJA += phantom2hdf5_utils.o
+  analysis_mace.o: phantom2hdf5_utils.o
+  phantom2hdf5_utils.o: utils_dumpfiles.o
+endif
+
 ifndef ANALYSISBIN
 ANALYSISBIN=phantomanalysis
 endif
