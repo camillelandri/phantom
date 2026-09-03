@@ -120,6 +120,7 @@ endif
 #--- MACE (postprocessing only for now)
 ifeq ($(MACE), yes)
     ANALYSIS=analysis_mace.f90
+    phantomanalysis: mace
     # requires DVODE, FTorch and HDF5 to be installed
     HDF5 := yes
     FTorch_PATH = /home/camille/software/FTorchbin

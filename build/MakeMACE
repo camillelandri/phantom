@@ -1,17 +1,34 @@
 
 .PHONY: clean_mace mace_setup mace
 
- FTorch_PATH = /home/camille/software/FTorchbin
- DVODE_PATH = /STER/hydroModels/camille/phantom/macetraining/MACE/MACE_fortran/dvode
+ FTorch_DIR = /home/camille/software/FTorchbin
+ DVODE_DIR = /STER/hydroModels/camille/phantom/macetraining/MACE/MACE_fortran/dvode
 
+ DOBJS := $(DVODE_DIR)/src/dvode_kinds_module.F90 \
+          $(DVODE_DIR)/src/dvode_blas_module.F90 \
+          $(DVODE_DIR)/src/dvode_linpack_module.F90 \
+          $(DVODE_DIR)/src/dvode_module.F90
 
 mace_setup:
 	@echo "setup of MACE files not implemented"
 
 mace:
-	cp ${FTorch_PATH}/include/ftorch/ftorch.mod ${PHANTOM_DIR}/build/
-	cp ${FTorch_PATH}/lib/libftorch.so ${PHANTOM_DIR}/build/
-	cp ${DVODE_PATH}/include/* ${PHANTOM_DIR}/build/
+	@echo "Compiling DVODE..." 
+	mkdir -p ${DVODE_DIR}/build
+	cd ${DVODE_DIR}/build && $(FC) -c ${DOBJS}
+	ar rcs $(DVODE_DIR)/build/libdvode.a \
+	$(DVODE_DIR)/build/dvode_kinds_module.o \
+	$(DVODE_DIR)/build/dvode_blas_module.o \
+	$(DVODE_DIR)/build/dvode_linpack_module.o \
+	$(DVODE_DIR)/build/dvode_module.o
+
+	mkdir -p ${DVODE_DIR}/lib
+	cp ${DVODE_DIR}/build/*.o ${DVODE_DIR}/lib
+	cp ${DVODE_DIR}/build/*.a ${DVODE_DIR}/lib
+	mkdir -p ${DVODE_DIR}/include
+	cp ${DVODE_DIR}/build/*.mod ${DVODE_DIR}/include
+	@echo "		Done!"
+
 
 
 clean_mace:
